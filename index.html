@@ -1,0 +1,179 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>HSSH FCalc</title>
+  <meta name="description" content="Freight density and NMFC class estimator for LTL shipments.">
+  <meta name="theme-color" content="#1d4f91">
+  <link rel="icon" href="assets/icons/icon.svg" type="image/svg+xml">
+  <link rel="icon" href="assets/icons/icon-32.png" sizes="32x32" type="image/png">
+  <link rel="apple-touch-icon" href="assets/icons/icon-180.png">
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="stylesheet" href="css/styles.css">
+</head>
+<body>
+  <noscript><p class="noscript">HSSH FCalc needs JavaScript turned on to calculate density.</p></noscript>
+
+  <div class="app">
+    <header class="topbar">
+      <div class="brand">
+        <img src="assets/icons/icon.svg" alt="" width="40" height="40">
+        <div>
+          <h1>HSSH FCalc</h1>
+          <p>Freight density and class estimator</p>
+        </div>
+      </div>
+
+      <div class="settings">
+        <div class="field">
+          <span class="field-label" id="unitLabel">Units</span>
+          <div class="segmented" role="radiogroup" aria-labelledby="unitLabel">
+            <input type="radio" name="unit" id="unitUs" value="us" checked>
+            <label for="unitUs">US <small>in, lbs</small></label>
+            <input type="radio" name="unit" id="unitMetric" value="metric">
+            <label for="unitMetric">Metric <small>cm, kg</small></label>
+          </div>
+        </div>
+        <div class="field">
+          <label class="field-label" for="scaleSelect">Class scale</label>
+          <select id="scaleSelect">
+            <option value="nmfc2025">NMFC 2025 (13 tiers)</option>
+            <option value="legacy18">Legacy (18 classes)</option>
+          </select>
+        </div>
+        <button type="button" class="btn btn-quiet" id="installBtn" hidden>Install app</button>
+      </div>
+    </header>
+
+    <main class="workspace">
+      <section class="sheet" aria-labelledby="itemsTitle">
+        <div class="sheet-head">
+          <h2 id="itemsTitle">Items</h2>
+          <div class="options">
+            <div class="field">
+              <span class="field-label" id="weightModeLabel">Weight entered</span>
+              <div class="segmented segmented-sm" role="radiogroup" aria-labelledby="weightModeLabel">
+                <input type="radio" name="weightMode" id="weightUnit" value="unit" checked>
+                <label for="weightUnit">Per unit</label>
+                <input type="radio" name="weightMode" id="weightTotal" value="total">
+                <label for="weightTotal">Line total</label>
+              </div>
+            </div>
+            <div class="field">
+              <label class="field-label" for="roundingSelect">Dimensions</label>
+              <select id="roundingSelect">
+                <option value="exact">Exact as typed</option>
+                <option value="nearest">Nearest whole inch</option>
+                <option value="up">Round up to whole inch</option>
+              </select>
+            </div>
+          </div>
+        </div>
+
+        <p class="example-note" id="exampleNote" hidden>
+          These two cartons are example data. Type over them, or
+          <button type="button" class="link" id="exampleClear">start a blank sheet</button>.
+        </p>
+
+        <div class="lines-head" aria-hidden="true">
+          <span>#</span>
+          <span>Description</span>
+          <span>Length <em class="u-len">in</em></span>
+          <span>Width <em class="u-len">in</em></span>
+          <span>Height <em class="u-len">in</em></span>
+          <span>Weight <em class="u-wt">lbs</em> <em class="u-wmode">each</em></span>
+          <span>Units</span>
+          <span></span>
+        </div>
+        <ol class="lines" id="lines"></ol>
+
+        <div class="sheet-foot">
+          <div class="sheet-actions">
+            <button type="button" class="btn" id="addLine">
+              <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M10 4v12M4 10h12"/></svg>
+              Add item
+            </button>
+            <label class="sr-only" for="libraryPick">Add a saved item</label>
+            <select id="libraryPick"></select>
+          </div>
+          <p class="tip">Fractions work: type <kbd>12 3/8</kbd> or <kbd>12-3/8</kbd>. Enter moves to the next line.</p>
+        </div>
+
+        <details class="library" id="library" hidden>
+          <summary>Saved items <span class="count" id="libraryCount">0</span></summary>
+          <ul id="libraryList"></ul>
+        </details>
+      </section>
+
+      <aside class="side">
+        <section class="tag is-empty" id="tag" aria-labelledby="tagTitle">
+          <div class="tag-top">
+            <span class="eyebrow" id="tagTitle">Estimated class</span>
+            <span class="tag-scale" id="tagScale">NMFC 2025</span>
+          </div>
+          <div class="tag-class" id="classValue" aria-live="polite">-</div>
+          <p class="tag-empty">Enter length, width, height and weight for at least one item to see its class.</p>
+
+          <dl class="tag-stats">
+            <div>
+              <dt>Density</dt>
+              <dd><b id="densityMain">-</b><span id="densityAlt"></span></dd>
+            </div>
+            <div>
+              <dt>Cube</dt>
+              <dd><b id="cubeMain">-</b><span id="cubeAlt"></span></dd>
+            </div>
+            <div>
+              <dt>Weight</dt>
+              <dd><b id="weightMain">-</b><span id="weightAlt"></span></dd>
+            </div>
+          </dl>
+
+          <div class="band" id="band" aria-hidden="true">
+            <div class="band-track"><div class="band-fill" id="bandFill"></div></div>
+            <div class="band-labels"><span id="bandLow"></span><span id="bandHigh"></span></div>
+          </div>
+          <ul class="hints" id="hints"></ul>
+          <p class="tag-count" id="tagCount"></p>
+        </section>
+
+        <section class="scale" aria-labelledby="scaleTitle">
+          <div class="scale-head">
+            <h2 id="scaleTitle">Density scale</h2>
+            <p id="scaleDesc"></p>
+          </div>
+          <table>
+            <thead>
+              <tr><th scope="col">Density <span id="scaleUnit">pcf</span></th><th scope="col">Class</th></tr>
+            </thead>
+            <tbody id="scaleBody"></tbody>
+          </table>
+        </section>
+      </aside>
+
+      <div class="footer">
+        <div class="actions">
+          <button type="button" class="btn btn-primary" id="copyBtn">Copy summary</button>
+          <button type="button" class="btn" id="csvBtn">Export CSV</button>
+          <button type="button" class="btn" id="printBtn">Print</button>
+          <button type="button" class="btn btn-danger" id="clearBtn">Clear all</button>
+        </div>
+        <p class="disclaimer">
+          <strong>Estimate only.</strong> The class shown comes from density alone. The NMFC can assign a
+          different class to your commodity, and handling, liability or stowability characteristics can change
+          it too. Confirm the class with your carrier or the NMFC before you book.
+        </p>
+      </div>
+    </main>
+  </div>
+
+  <div class="toast" id="toast" role="status" aria-live="polite" hidden>
+    <span id="toastText"></span>
+    <button type="button" class="link" id="toastAction" hidden></button>
+  </div>
+
+  <script src="js/calc.js"></script>
+  <script src="js/app.js"></script>
+</body>
+</html>

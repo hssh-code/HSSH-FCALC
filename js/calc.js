@@ -131,30 +131,37 @@
   }
 
   /**
-   * Typed weight divided by a whole number of units, as text that multiplies
-   * back to the typed weight exactly: a short decimal when there is one
-   * ("20.7" / 9 -> "2.3"), otherwise a mixed fraction ("25" / 3 -> "8 1/3").
-   * Rounding to 8.3333 instead could tip a line on a class boundary into
-   * the next class. Null when the weight cannot be read.
+   * Typed weight divided by a whole number of units, as text that reads back
+   * to the typed weight: a short exact decimal when there is one
+   * ("20.7" / 9 -> "2.3"), a familiar fraction when the split needs one
+   * ("25" / 3 -> "8 1/3"), otherwise a 10-place decimal. A 4-place rounding
+   * like 8.3333 could tip a line on a class boundary into the next class.
+   * Null only when the weight or units cannot be read.
    */
   function divideWeight(text, units) {
+    var n = parseNumber(text);
+    if (n === null || isNaN(n) || !(units >= 1) || Math.floor(units) !== units) return null;
     var r = parseRational(text);
-    if (!r || !(units >= 1) || Math.floor(units) !== units) return null;
-    var num = r.num;
-    var den = r.den * units;
-    var g = gcd(num, den) || 1;
-    num /= g;
-    den /= g;
-    // Exactly representable with at most 4 decimals?
-    var rest = den;
-    var twos = 0;
-    var fives = 0;
-    while (rest % 2 === 0) { rest /= 2; twos++; }
-    while (rest % 5 === 0) { rest /= 5; fives++; }
-    if (rest === 1 && Math.max(twos, fives) <= 4) return trimNumber(num / den, 4);
-    var whole = Math.floor(num / den);
-    var part = num - whole * den;
-    return (whole ? whole + ' ' : '') + part + '/' + den;
+    if (r) {
+      var num = r.num;
+      var den = r.den * units;
+      var g = gcd(num, den) || 1;
+      num /= g;
+      den /= g;
+      // Exactly representable with at most 4 decimals?
+      var rest = den;
+      var twos = 0;
+      var fives = 0;
+      while (rest % 2 === 0) { rest /= 2; twos++; }
+      while (rest % 5 === 0) { rest /= 5; fives++; }
+      if (rest === 1 && Math.max(twos, fives) <= 4) return trimNumber(num / den, 4);
+      if (den <= 16) {
+        var whole = Math.floor(num / den);
+        var part = num - whole * den;
+        return (whole ? whole + ' ' : '') + part + '/' + den;
+      }
+    }
+    return trimNumber(n / units, 10);
   }
 
   /** Apply the carrier dimension rounding rule to one measurement. */
@@ -173,8 +180,9 @@
     if (pcf == null || !isFinite(pcf) || pcf < 0) return null;
     var scale = getScale(scaleId);
     var tiers = scale.tiers;
-    // Guard against floating point noise right at a boundary (7.9999999999 -> 8).
-    var d = Math.round(pcf * 1e9) / 1e9;
+    // Guard against rounding noise right at a boundary (7.9999999997 -> 8).
+    // A millionth of a pcf is far below anything measurable on freight.
+    var d = Math.round(pcf * 1e6) / 1e6;
     var i = tiers.length - 1;
     while (i > 0 && d < tiers[i].min) i--;
     return {

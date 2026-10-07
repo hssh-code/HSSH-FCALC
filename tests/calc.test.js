@@ -217,10 +217,14 @@ test('divideWeight splits a typed weight exactly', () => {
   assert.equal(F.divideWeight('25', 3), '8 1/3');
   assert.equal(F.divideWeight('10', 3), '3 1/3');
   assert.equal(F.divideWeight('1', 3), '1/3');
-  assert.equal(F.divideWeight('20 3/4', 9), '2 11/36');
+  assert.equal(F.divideWeight('20 3/4', 9), '2.3055555556');
   assert.equal(F.divideWeight('200', 10), '20');
   assert.equal(F.divideWeight('1', 16), '0.0625');
-  assert.equal(F.divideWeight('1', 32), '1/32');
+  assert.equal(F.divideWeight('1', 32), '0.03125');
+  assert.equal(F.divideWeight('12.35', 3), '4.1166666667');
+  assert.equal(F.divideWeight('10', 7), '1 3/7');
+  assert.equal(F.divideWeight('8.3333333333', 3), '2.7777777778');
+  assert.equal(F.divideWeight('125.0021025543', 5), '25.0004205109');
   assert.equal(F.divideWeight('abc', 3), null);
   assert.equal(F.divideWeight('10', 1.5), null);
   // The result reads back to the same total, so a class boundary is kept.
@@ -231,6 +235,31 @@ test('divideWeight splits a typed weight exactly', () => {
   // 12 x 12 x 10 in, 25 lbs for 3 units sits exactly on 10 pcf (class 92.5).
   const row = { length: 12, width: 12, height: 10, weight: F.divideWeight('25', 3), units: 3 };
   assert.equal(F.classify(F.computeLine(row, US).pcf, 'nmfc2025').cls, 92.5);
+});
+
+test('splitting a line total per unit never changes the class, even on a boundary', () => {
+  // Deterministic sweep: for every tier boundary, unit count and cube, build a
+  // line whose total weight puts it exactly on the boundary, split the weight
+  // per unit and check the class does not move.
+  let seed = 7;
+  const rand = () => (seed = (seed * 16807) % 2147483647) / 2147483647;
+  let cases = 0;
+  for (const scale of ['nmfc2025', 'legacy18']) {
+    for (const tier of F.SCALES[scale].tiers.slice(1)) {
+      for (let units = 2; units <= 60; units += 1) {
+        const side = 4 + Math.floor(rand() * 40);              // inches
+        const cubeFt3 = (side * side * side * units) / 1728;
+        const total = F.trimNumber(tier.min * cubeFt3, 6);       // typed total, up to 6 decimals
+        const exact = F.classify(F.parseNumber(total) / cubeFt3, scale).cls;
+        const each = F.divideWeight(total, units);
+        assert.notEqual(each, null);
+        const line = F.computeLine({ length: side, width: side, height: side, weight: each, units }, { unit: 'us', weightMode: 'unit' });
+        assert.equal(F.classify(line.pcf, scale).cls, exact, `${total} lbs / ${units} units -> ${each}`);
+        cases++;
+      }
+    }
+  }
+  assert.ok(cases > 1500);
 });
 
 test('loading a draft restores rows with blank units and converts units when needed', () => {

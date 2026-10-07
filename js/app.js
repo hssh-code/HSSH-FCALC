@@ -639,9 +639,8 @@
       length: typed.length.trim(),
       width: typed.width.trim(),
       height: typed.height.trim(),
-      weight: state.weightMode === 'total' && units > 0
-        ? F.trimNumber(F.parseNumber(typed.weight) / units, 4)
-        : typed.weight.trim(),
+      weight: (state.weightMode === 'total' && units > 0 && F.divideWeight(typed.weight, units)) ||
+        typed.weight.trim(),
       savedAt: Date.now()
     };
     refreshLibrary();
@@ -671,8 +670,17 @@
     // Saved items keep weight per unit. On a line-total sheet, switch the
     // sheet to per unit first (as opening a draft does) so every line reads
     // its weight the same way; Undo puts everything back.
-    const before = { rows: cloneRows(), weightMode: state.weightMode, example: state.example };
     const switchedMode = state.weightMode === 'total';
+    if (switchedMode) {
+      const blocked = linesBlockingPerUnit();
+      if (blocked.length) {
+        toast('Fix line ' + blocked.join(', line ') + ' first. Saved items use weight per unit, and ' +
+          (blocked.length === 1 ? 'that line\'s' : 'those lines\'') +
+          ' weight or units cannot be read, so the line total cannot be split per unit.');
+        return;
+      }
+    }
+    const before = { rows: cloneRows(), weightMode: state.weightMode, example: state.example };
     let converted = 0;
     if (switchedMode) {
       state.rows.forEach((r) => { if (toPerUnit(r)) converted++; });
@@ -712,25 +720,40 @@
    * usable weight or units.
    */
   function toPerUnit(row) {
-    const w = F.parseNumber(row.weight);
     const typedUnits = F.parseNumber(row.units);
     const u = typedUnits === null ? 1 : typedUnits;
-    if (w === null || isNaN(w) || isNaN(u) || u <= 1 || Math.floor(u) !== u) return false;
-    const each = F.trimNumber(w / u, 4);
+    if (u === 1) return false;
+    const each = F.divideWeight(row.weight, u);
+    if (each === null) return false;
     const back = row.beforeSwitch;
     if (back && back.produced.weight === row.weight) {
-      const typed = F.parseNumber(back.values.weight);
+      const typedEach = F.divideWeight(back.values.weight, u);
       // New objects, not edits: duplicated lines and undo snapshots share them.
       row.beforeSwitch = {
         unit: back.unit,
-        values: Object.assign({}, back.values, {
-          weight: typed === null || isNaN(typed) ? back.values.weight : F.trimNumber(typed / u, 4)
-        }),
+        values: Object.assign({}, back.values, { weight: typedEach === null ? back.values.weight : typedEach }),
         produced: Object.assign({}, back.produced, { weight: each })
       };
     }
     row.weight = each;
     return true;
+  }
+
+  /**
+   * Line numbers whose line-total weight cannot be turned into a per-unit
+   * weight because the weight or units cannot be read. Switching the sheet to
+   * per unit would quietly change what those weights mean.
+   */
+  function linesBlockingPerUnit() {
+    const out = [];
+    state.rows.forEach((row, i) => {
+      if (!row.weight.trim()) return;
+      const typedUnits = F.parseNumber(row.units);
+      const u = typedUnits === null ? 1 : typedUnits;
+      const unitsOk = !isNaN(u) && u >= 1 && Math.floor(u) === u;
+      if (!unitsOk || F.divideWeight(row.weight, u) === null) out.push(i + 1);
+    });
+    return out;
   }
 
   function deleteFromLibrary(id, position) {
@@ -752,8 +775,11 @@
         toast('Not restored: another window has since saved an item called "' + removed.name + '".');
         return;
       }
-      if (!library.some((it) => it.id === removed.id)) library.push(removed);
-      commitLibrary({ id: removed.id, entry: removed });
+      // Already back (another window saved it again): leave that newer copy alone.
+      if (!library.some((it) => it.id === removed.id)) {
+        library.push(removed);
+        commitLibrary({ id: removed.id, entry: removed, at: removed.savedAt || 0 });
+      }
       renderLibrary();
       setPanel('library', 'libraryToggle', true);
       const again = $('libraryList').querySelector('[data-library-add="' + CSS.escape(removed.id) + '"]');
@@ -955,8 +981,11 @@
         toast('Not restored: another window has since saved a draft called "' + removed.name + '".');
         return;
       }
-      if (!drafts.some((d) => d.id === removed.id)) drafts.push(removed);
-      commitDrafts({ id: removed.id, entry: removed });
+      // Already back (another window saved it again): leave that newer copy alone.
+      if (!drafts.some((d) => d.id === removed.id)) {
+        drafts.push(removed);
+        commitDrafts({ id: removed.id, entry: removed, at: removed.savedAt || 0 });
+      }
       renderDrafts();
       setPanel('drafts', 'draftsToggle', true);
       const again = $('draftList').querySelector('[data-draft-open="' + CSS.escape(removed.id) + '"]');

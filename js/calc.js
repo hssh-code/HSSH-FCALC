@@ -107,6 +107,56 @@
     return NaN;
   }
 
+  /**
+   * Read typed text as an exact fraction { num, den } of whole numbers:
+   * "2.3" -> 23/10, "3/8" -> 3/8, "12 3/8" -> 99/8. Null when unreadable.
+   */
+  function parseRational(input) {
+    var s = String(input == null ? '' : input).trim();
+    var m = s.match(/^(\d*)\.?(\d*)$/);
+    if (m && (m[1] || m[2]) && m[2].length <= 9) {
+      var den = Math.pow(10, m[2].length);
+      return { num: Number(m[1] || '0') * den + Number(m[2] || '0'), den: den };
+    }
+    m = s.match(/^(?:(\d+)(?:\s+|\s*-\s*))?(\d+)\s*\/\s*(\d+)$/);
+    if (m && Number(m[3]) > 0) {
+      return { num: Number(m[1] || '0') * Number(m[3]) + Number(m[2]), den: Number(m[3]) };
+    }
+    return null;
+  }
+
+  function gcd(a, b) {
+    while (b) { var t = a % b; a = b; b = t; }
+    return a;
+  }
+
+  /**
+   * Typed weight divided by a whole number of units, as text that multiplies
+   * back to the typed weight exactly: a short decimal when there is one
+   * ("20.7" / 9 -> "2.3"), otherwise a mixed fraction ("25" / 3 -> "8 1/3").
+   * Rounding to 8.3333 instead could tip a line on a class boundary into
+   * the next class. Null when the weight cannot be read.
+   */
+  function divideWeight(text, units) {
+    var r = parseRational(text);
+    if (!r || !(units >= 1) || Math.floor(units) !== units) return null;
+    var num = r.num;
+    var den = r.den * units;
+    var g = gcd(num, den) || 1;
+    num /= g;
+    den /= g;
+    // Exactly representable with at most 4 decimals?
+    var rest = den;
+    var twos = 0;
+    var fives = 0;
+    while (rest % 2 === 0) { rest /= 2; twos++; }
+    while (rest % 5 === 0) { rest /= 5; fives++; }
+    if (rest === 1 && Math.max(twos, fives) <= 4) return trimNumber(num / den, 4);
+    var whole = Math.floor(num / den);
+    var part = num - whole * den;
+    return (whole ? whole + ' ' : '') + part + '/' + den;
+  }
+
   /** Apply the carrier dimension rounding rule to one measurement. */
   function roundDimension(value, mode) {
     if (mode === 'up') return Math.ceil(value - 1e-9);
@@ -454,10 +504,9 @@
         DRAFT_FIELDS.forEach(function (f) { out[f] = cleanText(r[f]); });
         if (r.unit === 'us' || r.unit === 'metric') out.unit = r.unit;
         if (weightMode === 'total') {
-          var w = parseNumber(r.weight);
           var u = parseNumber(r.units);
-          if (u === null) u = 1;
-          if (w !== null && !isNaN(w) && !isNaN(u) && u > 0) out.weight = trimNumber(w / u, 4);
+          var each = divideWeight(out.weight, u === null ? 1 : u);
+          if (each !== null) out.weight = each;
         }
         return out;
       });
@@ -497,6 +546,8 @@
     computeLine: computeLine,
     computeShipment: computeShipment,
     convertField: convertField,
+    parseRational: parseRational,
+    divideWeight: divideWeight,
     trimNumber: trimNumber,
     fmt: fmt,
     fmtFixed: fmtFixed,

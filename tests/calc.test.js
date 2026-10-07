@@ -209,6 +209,28 @@ test('drafts store per-unit weight when weights were entered as line totals', ()
   assert.equal(draft[0].weight, '2.3');
   assert.equal(draft[1].weight, '5');
   assert.equal(draft[2].weight, '5');
+  assert.equal(F.toDraftRows([{ desc: 'D', length: 1, width: 1, height: 1, weight: '25', units: '3' }], 'total')[0].weight, '8 1/3');
+});
+
+test('divideWeight splits a typed weight exactly', () => {
+  assert.equal(F.divideWeight('20.7', 9), '2.3');
+  assert.equal(F.divideWeight('25', 3), '8 1/3');
+  assert.equal(F.divideWeight('10', 3), '3 1/3');
+  assert.equal(F.divideWeight('1', 3), '1/3');
+  assert.equal(F.divideWeight('20 3/4', 9), '2 11/36');
+  assert.equal(F.divideWeight('200', 10), '20');
+  assert.equal(F.divideWeight('1', 16), '0.0625');
+  assert.equal(F.divideWeight('1', 32), '1/32');
+  assert.equal(F.divideWeight('abc', 3), null);
+  assert.equal(F.divideWeight('10', 1.5), null);
+  // The result reads back to the same total, so a class boundary is kept.
+  for (const [w, u] of [['25', 3], ['40', 3], ['10', 7], ['20 3/4', 9], ['33.3', 7]]) {
+    const back = F.parseNumber(F.divideWeight(w, u)) * u;
+    assert.ok(Math.abs(back - F.parseNumber(w)) < 1e-9, w + ' / ' + u);
+  }
+  // 12 x 12 x 10 in, 25 lbs for 3 units sits exactly on 10 pcf (class 92.5).
+  const row = { length: 12, width: 12, height: 10, weight: F.divideWeight('25', 3), units: 3 };
+  assert.equal(F.classify(F.computeLine(row, US).pcf, 'nmfc2025').cls, 92.5);
 });
 
 test('loading a draft restores rows with blank units and converts units when needed', () => {

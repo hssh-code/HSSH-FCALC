@@ -29,10 +29,11 @@
 
   // ------------------------------------------------------------- storage --
 
+  /** Parsed value, undefined when nothing is stored, null when unreadable or blocked. */
   function load(key) {
     try {
       const raw = localStorage.getItem(key);
-      return raw ? JSON.parse(raw) : null;
+      return raw === null ? undefined : JSON.parse(raw);
     } catch (e) {
       return null;
     }
@@ -50,7 +51,10 @@
 
   const STORAGE_BLOCKED = ' This browser is blocking saved data, so it will be gone when you close the page.';
 
-  const asText = (v) => (v == null ? '' : String(v));
+  // Stored data is untrusted: only plain strings and numbers become text.
+  const asText = (v) => (typeof v === 'string' ? v : typeof v === 'number' && isFinite(v) ? String(v) : '');
+  const isObject = (v) => Boolean(v) && typeof v === 'object' && !Array.isArray(v);
+  const asUnit = (v) => (v === 'metric' ? 'metric' : 'us');
 
   function defaultState() {
     return {
@@ -65,20 +69,19 @@
   }
 
   function restoreState(saved) {
-    if (!saved || typeof saved !== 'object' || !Array.isArray(saved.rows)) return defaultState();
-    const rows = saved.rows
-      .filter((r) => r && typeof r === 'object')
-      .map((r) => {
-        const row = { id: uid() };
-        FIELDS.forEach((f) => { row[f] = asText(r[f]); });
-        return row;
-      });
+    if (!isObject(saved) || !Array.isArray(saved.rows)) return defaultState();
+    const rows = saved.rows.filter(isObject).map((r) => {
+      const row = { id: uid() };
+      FIELDS.forEach((f) => { row[f] = asText(r[f]); });
+      return row;
+    });
     return {
-      unit: saved.unit === 'metric' ? 'metric' : 'us',
+      unit: asUnit(saved.unit),
       weightMode: saved.weightMode === 'total' ? 'total' : 'unit',
       rounding: ['exact', 'nearest', 'up'].includes(saved.rounding) ? saved.rounding : 'exact',
-      scale: F.SCALES[saved.scale] ? saved.scale : F.DEFAULT_SCALE,
-      example: Boolean(saved.example),
+      scale: typeof saved.scale === 'string' && Object.prototype.hasOwnProperty.call(F.SCALES, saved.scale)
+        ? saved.scale : F.DEFAULT_SCALE,
+      example: saved.example === true,
       draftName: asText(saved.draftName).slice(0, 60),
       rows: rows.length ? rows : [blankRow()]
     };
@@ -87,41 +90,63 @@
   function restoreLibrary(saved) {
     if (!Array.isArray(saved)) return [];
     return saved
-      .filter((it) => it && typeof it === 'object' && it.name)
+      .filter(isObject)
       .map((it) => ({
         id: asText(it.id) || uid(),
-        name: asText(it.name),
-        unit: it.unit === 'metric' ? 'metric' : 'us',
+        name: asText(it.name).slice(0, 80),
+        unit: asUnit(it.unit),
         length: asText(it.length),
         width: asText(it.width),
         height: asText(it.height),
         weight: asText(it.weight)
-      }));
+      }))
+      .filter((it) => it.name);
   }
 
-  let state = restoreState(load(STATE_KEY));
   function restoreDrafts(saved) {
     if (!Array.isArray(saved)) return [];
     return saved
-      .filter((d) => d && typeof d === 'object' && d.name && Array.isArray(d.rows))
+      .filter((d) => isObject(d) && Array.isArray(d.rows))
       .map((d) => ({
         id: asText(d.id) || uid(),
         name: asText(d.name).slice(0, 60),
-        unit: d.unit === 'metric' ? 'metric' : 'us',
-        savedAt: Number(d.savedAt) || 0,
-        rows: d.rows
-          .filter((r) => r && typeof r === 'object')
-          .map((r) => {
-            const row = {};
-            F.DRAFT_FIELDS.forEach((f) => { row[f] = asText(r[f]); });
-            return row;
-          })
-      }));
+        unit: asUnit(d.unit),
+        savedAt: typeof d.savedAt === 'number' && isFinite(d.savedAt) ? d.savedAt : 0,
+        rows: d.rows.filter(isObject).map((r) => {
+          const row = {};
+          F.DRAFT_FIELDS.forEach((f) => { row[f] = asText(r[f]); });
+          if (r.unit === 'us' || r.unit === 'metric') row.unit = r.unit;
+          return row;
+        })
+      }))
+      .filter((d) => d.name);
   }
 
-  let library = restoreLibrary(load(LIBRARY_KEY));
-  let drafts = restoreDrafts(load(DRAFTS_KEY));
+  /** Never let bad stored data stop the calculator from starting. */
+  function safely(fn, fallback) {
+    try {
+      return fn();
+    } catch (e) {
+      return fallback;
+    }
+  }
+
+  let state = safely(() => restoreState(load(STATE_KEY)), null) || defaultState();
+  let library = safely(() => restoreLibrary(load(LIBRARY_KEY)), []);
+  let drafts = safely(() => restoreDrafts(load(DRAFTS_KEY)), []);
   let lastResult = null;
+
+  // Another window may have changed the lists since this page loaded. Re-read
+  // them before every change so one window never overwrites the other's work.
+  function refreshLibrary() {
+    const saved = load(LIBRARY_KEY);
+    if (saved !== null) library = safely(() => restoreLibrary(saved || []), library);
+  }
+
+  function refreshDrafts() {
+    const saved = load(DRAFTS_KEY);
+    if (saved !== null) drafts = safely(() => restoreDrafts(saved || []), drafts);
+  }
 
   const persist = () => {
     store(STATE_KEY, {
@@ -487,29 +512,67 @@
 
   const cloneRows = () => state.rows.map((r) => Object.assign({}, r));
 
+  /**
+   * A line as the user typed it. A line that was converted to the other unit
+   * system and not edited since keeps its original entries (12 3/8, 2.3) and
+   * their unit, so saving never stores rounded conversions like 2.3001.
+   */
+  function asTyped(row) {
+    const back = row.beforeSwitch;
+    if (back && MEASURE_FIELDS.every((f) => row[f] === back.produced[f])) {
+      return Object.assign({}, row, back.values, { unit: back.unit });
+    }
+    return Object.assign({}, row, { unit: state.unit });
+  }
+
+  const savedAtText = (ms) => new Date(ms).toLocaleString(undefined, {
+    month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit'
+  });
+
+  function setPanel(panelId, toggleId, open) {
+    $(panelId).hidden = !open;
+    $(toggleId).setAttribute('aria-expanded', String(open));
+  }
+
+  /** After a list re-renders, keep keyboard focus on the entry that took the removed one's place. */
+  function focusInList(list, position, fallbackId) {
+    const li = list.children[Math.min(position, list.children.length - 1)];
+    const btn = li && li.querySelector('.btn');
+    (btn || $(fallbackId)).focus();
+  }
+
   function saveToLibrary(row) {
-    const missing = MEASURE_FIELDS.filter((f) => F.parseNumber(row[f]) === null || isNaN(F.parseNumber(row[f])));
-    if (missing.length) {
+    const typed = asTyped(row);
+    const bad = MEASURE_FIELDS.some((f) => {
+      const n = F.parseNumber(typed[f]);
+      return n === null || isNaN(n);
+    });
+    if (bad) {
       toast('Fill in length, width, height and weight before saving this item.');
       return;
     }
-    const L = F.labels(state.unit);
-    const name = row.desc.trim() ||
-      [row.length, row.width, row.height].join(' x ') + ' ' + L.len;
+    const L = F.labels(typed.unit);
+    const name = (typed.desc.trim() || [typed.length, typed.width, typed.height].join(' x ') + ' ' + L.len).slice(0, 80);
+    const units = F.parseNumber(typed.units);
     const entry = {
       id: uid(),
       name: name,
-      unit: state.unit,
-      length: row.length,
-      width: row.width,
-      height: row.height,
-      weight: state.weightMode === 'total'
-        ? F.trimNumber(F.parseNumber(row.weight) / (F.parseNumber(row.units) || 1), 3)
-        : row.weight
+      unit: typed.unit,
+      length: typed.length.trim(),
+      width: typed.width.trim(),
+      height: typed.height.trim(),
+      weight: state.weightMode === 'total' && units > 0
+        ? F.trimNumber(F.parseNumber(typed.weight) / units, 4)
+        : typed.weight.trim()
     };
+    refreshLibrary();
     const existing = library.findIndex((it) => it.name.toLowerCase() === name.toLowerCase());
-    if (existing >= 0) library[existing] = entry;
-    else library.push(entry);
+    if (existing >= 0) {
+      entry.id = library[existing].id;
+      library[existing] = entry;
+    } else {
+      library.push(entry);
+    }
     const kept = store(LIBRARY_KEY, library);
     renderLibrary();
     toast((existing >= 0 ? 'Updated ' : 'Saved ') + '"' + name + '" in saved items.' + (kept ? '' : STORAGE_BLOCKED));
@@ -517,11 +580,15 @@
 
   function addFromLibrary(id) {
     const it = library.find((x) => x.id === id);
-    if (!it) return;
-    const data = { desc: it.name };
+    if (!it) {
+      refreshLibrary();
+      renderLibrary();
+      toast('That saved item was deleted in another window.');
+      return;
+    }
+    const data = { desc: it.name, units: '1' };
     ['length', 'width', 'height'].forEach((f) => { data[f] = F.convertField(it[f], 'dim', it.unit, state.unit); });
     data.weight = F.convertField(it.weight, 'weight', it.unit, state.unit);
-    data.units = '1';
     state.example = false;
 
     // Fill the last line if it is still blank, otherwise add a new one.
@@ -537,31 +604,52 @@
     focusField(row.id, 'units');
   }
 
+  function deleteFromLibrary(id, position) {
+    refreshLibrary();
+    const removed = library.find((it) => it.id === id);
+    if (!removed) {
+      renderLibrary();
+      return;
+    }
+    library = library.filter((it) => it.id !== id);
+    const kept = store(LIBRARY_KEY, library);
+    renderLibrary();
+    focusInList($('libraryList'), position, 'libraryToggle');
+    toast('Deleted "' + removed.name + '".' + (kept ? '' : STORAGE_BLOCKED), 'Undo', () => {
+      refreshLibrary();
+      if (!library.some((it) => it.id === removed.id)) library.push(removed);
+      store(LIBRARY_KEY, library);
+      renderLibrary();
+      setPanel('library', 'libraryToggle', true);
+      const again = $('libraryList').querySelector('[data-library-add="' + CSS.escape(removed.id) + '"]');
+      if (again) again.focus();
+    });
+  }
+
   function renderLibrary() {
-    const pick = $('libraryPick');
     const L = (unit) => F.labels(unit);
-    pick.replaceChildren(el('option', { value: '', text: library.length ? 'Add saved item...' : 'No saved items yet' }));
-    pick.disabled = !library.length;
-    library
+    $('libraryCount').textContent = String(library.length);
+    $('libraryEmpty').hidden = library.length > 0;
+    $('libraryList').replaceChildren(...library
       .slice()
       .sort((a, b) => a.name.localeCompare(b.name))
-      .forEach((it) => pick.append(el('option', { value: it.id, text: it.name })));
-
-    $('library').hidden = !library.length;
-    $('libraryCount').textContent = String(library.length);
-    $('libraryList').replaceChildren(...library.map((it) => {
-      const info = el('span');
-      info.append(
-        el('b', { text: it.name }),
-        el('small', {
-          text: [it.length, it.width, it.height].join(' x ') + ' ' + L(it.unit).len + ', ' +
-            it.weight + ' ' + L(it.unit).wt + ' each'
-        })
-      );
-      const del = iconButton('remove', 'Delete saved item ' + it.name, 'remove');
-      del.dataset.libraryId = it.id;
-      return el('li', {}, [info, del]);
-    }));
+      .map((it) => {
+        const info = el('span');
+        info.append(
+          el('b', { text: it.name }),
+          el('small', {
+            text: [it.length, it.width, it.height].join(' x ') + ' ' + L(it.unit).len + ', ' +
+              it.weight + ' ' + L(it.unit).wt + ' each'
+          })
+        );
+        const add = el('button', {
+          type: 'button', className: 'btn btn-sm', text: 'Add', 'data-library-add': it.id,
+          'aria-label': 'Add ' + it.name + ' to the sheet'
+        });
+        const del = iconButton('remove', 'Delete saved item ' + it.name, 'remove');
+        del.dataset.libraryDelete = it.id;
+        return el('li', { title: it.name }, [info, add, del]);
+      }));
   }
 
   function changeUnit(next) {
@@ -618,9 +706,7 @@
       const first = named[0].slice(0, 40);
       return named.length > 1 ? first + ' + ' + (named.length - 1) + ' more' : first;
     }
-    return 'Draft ' + new Date().toLocaleString(undefined, {
-      month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit'
-    });
+    return 'Draft ' + savedAtText(Date.now());
   }
 
   function openDraftForm() {
@@ -651,12 +737,13 @@
       toast('Give the draft a name so you can find it later.');
       return;
     }
-    const rows = F.toDraftRows(state.rows, state.weightMode);
+    const rows = F.toDraftRows(state.rows.map(asTyped), state.weightMode);
     if (!rows.length) {
       closeDraftForm(true);
       toast('Add at least one item before saving a draft.');
       return;
     }
+    refreshDrafts();
     const existing = drafts.findIndex((d) => d.name.toLowerCase() === name.toLowerCase());
     const draft = {
       id: existing >= 0 ? drafts[existing].id : uid(),
@@ -678,22 +765,29 @@
 
   function loadDraft(id) {
     const draft = drafts.find((d) => d.id === id);
-    if (!draft) return;
+    if (!draft) {
+      refreshDrafts();
+      renderDrafts();
+      toast('That draft was deleted in another window.');
+      return;
+    }
     const before = {
       rows: cloneRows(), example: state.example, draftName: state.draftName, weightMode: state.weightMode
     };
     const rows = F.fromDraftRows(draft, state.unit).map((r, i) => {
       const row = Object.assign({ id: uid() }, r);
-      // Opened in the other unit system: remember what was saved so switching
-      // back shows the original entries (2.3 lbs, not 2.3001 lbs).
-      if (draft.unit !== state.unit) {
+      // Saved in the other unit system: remember the saved entries so switching
+      // back shows them exactly (2.3 lbs, not 2.3001 lbs).
+      const saved = draft.rows[i];
+      const from = saved.unit || draft.unit;
+      if (from !== state.unit) {
         const values = {};
         const produced = {};
         MEASURE_FIELDS.forEach((f) => {
-          values[f] = asText(draft.rows[i][f]).trim();
+          values[f] = saved[f].trim();
           produced[f] = row[f];
         });
-        row.beforeSwitch = { unit: draft.unit, values: values, produced: produced };
+        row.beforeSwitch = { unit: from, values: values, produced: produced };
       }
       return row;
     });
@@ -704,6 +798,7 @@
     state.example = false;
     state.draftName = draft.name;
     closeDraftForm(false);
+    setPanel('drafts', 'draftsToggle', false);
     syncControls();
     renderLines();
     focusField(state.rows[0].id, 'units');
@@ -718,48 +813,51 @@
     });
   }
 
-  function deleteDraft(id) {
-    const index = drafts.findIndex((d) => d.id === id);
-    if (index < 0) return;
-    const removed = drafts[index];
-    drafts.splice(index, 1);
-    store(DRAFTS_KEY, drafts);
+  function deleteDraft(id, position) {
+    refreshDrafts();
+    const removed = drafts.find((d) => d.id === id);
+    if (!removed) {
+      renderDrafts();
+      return;
+    }
+    drafts = drafts.filter((d) => d.id !== id);
+    const kept = store(DRAFTS_KEY, drafts);
     renderDrafts();
-    toast('Deleted draft "' + removed.name + '".', 'Undo', () => {
-      drafts.splice(Math.min(index, drafts.length), 0, removed);
+    focusInList($('draftList'), position, 'draftsToggle');
+    toast('Deleted draft "' + removed.name + '".' + (kept ? '' : STORAGE_BLOCKED), 'Undo', () => {
+      refreshDrafts();
+      if (!drafts.some((d) => d.id === removed.id)) drafts.push(removed);
       store(DRAFTS_KEY, drafts);
       renderDrafts();
+      setPanel('drafts', 'draftsToggle', true);
+      const again = $('draftList').querySelector('[data-draft-open="' + CSS.escape(removed.id) + '"]');
+      if (again) again.focus();
     });
   }
 
   function renderDrafts() {
-    const pick = $('draftPick');
-    const sorted = drafts.slice().sort((a, b) => b.savedAt - a.savedAt);
-    pick.replaceChildren(el('option', { value: '', text: drafts.length ? 'Open draft...' : 'No drafts yet' }));
-    pick.disabled = !drafts.length;
-    sorted.forEach((d) => pick.append(el('option', { value: d.id, text: d.name })));
-
-    $('drafts').hidden = !drafts.length;
     $('draftCount').textContent = String(drafts.length);
-    $('draftList').replaceChildren(...sorted.map((d) => {
-      const when = d.savedAt
-        ? new Date(d.savedAt).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })
-        : '';
-      const info = el('span');
-      info.append(
-        el('b', { text: d.name }),
-        el('small', {
-          text: d.rows.length + (d.rows.length === 1 ? ' item' : ' items') + (when ? ', saved ' + when : '')
-        })
-      );
-      const open = el('button', {
-        type: 'button', className: 'btn btn-sm', text: 'Open', 'data-draft-open': d.id,
-        'aria-label': 'Open draft ' + d.name
-      });
-      const del = iconButton('remove', 'Delete draft ' + d.name, 'remove');
-      del.dataset.draftDelete = d.id;
-      return el('li', {}, [info, open, del]);
-    }));
+    $('draftsEmpty').hidden = drafts.length > 0;
+    $('draftList').replaceChildren(...drafts
+      .slice()
+      .sort((a, b) => b.savedAt - a.savedAt)
+      .map((d) => {
+        const info = el('span');
+        info.append(
+          el('b', { text: d.name }),
+          el('small', {
+            text: d.rows.length + (d.rows.length === 1 ? ' item' : ' items') +
+              (d.savedAt ? ', saved ' + savedAtText(d.savedAt) : '')
+          })
+        );
+        const open = el('button', {
+          type: 'button', className: 'btn btn-sm', text: 'Open', 'data-draft-open': d.id,
+          'aria-label': 'Open draft ' + d.name
+        });
+        const del = iconButton('remove', 'Delete draft ' + d.name, 'remove');
+        del.dataset.draftDelete = d.id;
+        return el('li', { title: d.name }, [info, open, del]);
+      }));
   }
 
   function copySummary() {
@@ -802,21 +900,45 @@
 
   // --------------------------------------------------------------- toast --
 
+  const toastBox = $('toast');
   let toastTimer = null;
+  let toastDelay = 3500;
+
+  const hideToast = () => { toastBox.hidden = true; };
+
+  // The message stays up while the pointer or keyboard focus is on it, so
+  // Undo can always be reached; leaving it starts the countdown again.
+  function armToast() {
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => {
+      if (toastBox.matches(':hover') || toastBox.contains(document.activeElement)) return;
+      hideToast();
+    }, toastDelay);
+  }
 
   function toast(message, actionLabel, onAction) {
-    const box = $('toast');
     const action = $('toastAction');
     $('toastText').textContent = message;
     action.hidden = !actionLabel;
     action.textContent = actionLabel || '';
     action.onclick = actionLabel
-      ? () => { box.hidden = true; onAction(); }
+      ? () => {
+        hideToast();
+        onAction();
+        const active = document.activeElement;
+        if (!active || active === document.body || toastBox.contains(active)) {
+          const first = linesEl.querySelector('input');
+          if (first) first.focus();
+        }
+      }
       : null;
-    box.hidden = false;
-    clearTimeout(toastTimer);
-    toastTimer = setTimeout(() => { box.hidden = true; }, actionLabel ? 7000 : 3500);
+    toastDelay = actionLabel ? 8000 : 3500;
+    toastBox.hidden = false;
+    armToast();
   }
+
+  toastBox.addEventListener('mouseleave', armToast);
+  toastBox.addEventListener('focusout', armToast);
 
   // -------------------------------------------------------------- events --
 
@@ -880,23 +1002,23 @@
     focusField(row.id, 'length');
   });
 
-  $('libraryPick').addEventListener('change', (e) => {
-    if (e.target.value) addFromLibrary(e.target.value);
-    e.target.value = '';
+  $('libraryToggle').addEventListener('click', () => {
+    const open = $('library').hidden;
+    if (open) {
+      refreshLibrary();
+      renderLibrary();
+    }
+    setPanel('library', 'libraryToggle', open);
   });
 
   $('libraryList').addEventListener('click', (e) => {
-    const btn = e.target.closest('[data-library-id]');
-    if (!btn) return;
-    const removed = library.find((it) => it.id === btn.dataset.libraryId);
-    library = library.filter((it) => it.id !== btn.dataset.libraryId);
-    store(LIBRARY_KEY, library);
-    renderLibrary();
-    toast('Deleted "' + removed.name + '".', 'Undo', () => {
-      library.push(removed);
-      store(LIBRARY_KEY, library);
-      renderLibrary();
-    });
+    const add = e.target.closest('[data-library-add]');
+    if (add) {
+      addFromLibrary(add.dataset.libraryAdd);
+      return;
+    }
+    const del = e.target.closest('[data-library-delete]');
+    if (del) deleteFromLibrary(del.dataset.libraryDelete, [...$('libraryList').children].indexOf(del.closest('li')));
   });
 
   $('saveDraftBtn').addEventListener('click', () => {
@@ -919,10 +1041,13 @@
   draftNameInput.addEventListener('input', () => draftNameInput.removeAttribute('aria-invalid'));
   $('draftCancel').addEventListener('click', () => closeDraftForm(true));
 
-  $('draftPick').addEventListener('change', (e) => {
-    const id = e.target.value;
-    e.target.value = '';
-    if (id) loadDraft(id);
+  $('draftsToggle').addEventListener('click', () => {
+    const open = $('drafts').hidden;
+    if (open) {
+      refreshDrafts();
+      renderDrafts();
+    }
+    setPanel('drafts', 'draftsToggle', open);
   });
 
   $('draftList').addEventListener('click', (e) => {
@@ -932,7 +1057,19 @@
       return;
     }
     const del = e.target.closest('[data-draft-delete]');
-    if (del) deleteDraft(del.dataset.draftDelete);
+    if (del) deleteDraft(del.dataset.draftDelete, [...$('draftList').children].indexOf(del.closest('li')));
+  });
+
+  // Keep the lists current when another window saves or deletes.
+  window.addEventListener('storage', (e) => {
+    if (e.key === null || e.key === DRAFTS_KEY) {
+      refreshDrafts();
+      renderDrafts();
+    }
+    if (e.key === null || e.key === LIBRARY_KEY) {
+      refreshLibrary();
+      renderLibrary();
+    }
   });
 
   document.querySelectorAll('input[name="unit"]').forEach((r) => {

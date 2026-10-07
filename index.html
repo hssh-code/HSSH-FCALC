@@ -94,16 +94,20 @@
               <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M10 4v12M4 10h12"/></svg>
               Add item
             </button>
-            <label class="sr-only" for="libraryPick">Add a saved item</label>
-            <select id="libraryPick"></select>
+            <button type="button" class="btn" id="libraryToggle" aria-controls="library" aria-expanded="false">
+              <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M5 3h10v14l-5-3.5L5 17z"/></svg>
+              Saved items <span class="count" id="libraryCount">0</span>
+            </button>
           </div>
           <div class="sheet-actions">
             <button type="button" class="btn" id="saveDraftBtn" aria-controls="draftForm" aria-expanded="false">
               <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M4 3h9l3 3v11H4z"/><path d="M7 3v4h6V3M7 17v-5h6v5"/></svg>
               Save draft
             </button>
-            <label class="sr-only" for="draftPick">Open a saved draft</label>
-            <select id="draftPick"></select>
+            <button type="button" class="btn" id="draftsToggle" aria-controls="drafts" aria-expanded="false">
+              <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M3 5h5l2 2h7v9H3z"/></svg>
+              Drafts <span class="count" id="draftCount">0</span>
+            </button>
           </div>
         </div>
 
@@ -121,21 +125,27 @@
           </p>
         </form>
 
+        <section class="saved-panel" id="drafts" hidden aria-labelledby="draftsTitle">
+          <h3 class="panel-title" id="draftsTitle">Drafts</h3>
+          <p class="panel-empty" id="draftsEmpty">
+            No drafts yet. Save draft keeps the items on this sheet so you can open them again later.
+          </p>
+          <ul id="draftList"></ul>
+        </section>
+
+        <section class="saved-panel" id="library" hidden aria-labelledby="libraryTitle">
+          <h3 class="panel-title" id="libraryTitle">Saved items</h3>
+          <p class="panel-empty" id="libraryEmpty">
+            No saved items yet. Use the bookmark button on any line to keep that item here.
+          </p>
+          <ul id="libraryList"></ul>
+        </section>
+
         <p class="tip">
           Fractions work: type <kbd>12 3/8</kbd> or <kbd>12-3/8</kbd>.
           <kbd aria-label="Up arrow">&uarr;</kbd> <kbd aria-label="Down arrow">&darr;</kbd> jump to the same field on the line above or below.
           Enter on the last line adds a new one.
         </p>
-
-        <details class="saved-panel" id="drafts" hidden>
-          <summary>Drafts <span class="count" id="draftCount">0</span></summary>
-          <ul id="draftList"></ul>
-        </details>
-
-        <details class="saved-panel" id="library" hidden>
-          <summary>Saved items <span class="count" id="libraryCount">0</span></summary>
-          <ul id="libraryList"></ul>
-        </details>
       </section>
 
       <aside class="side">

@@ -224,3 +224,19 @@ test('loading a draft restores rows with blank units and converts units when nee
   ]);
   assert.deepEqual(F.fromDraftRows({}, 'us'), []);
 });
+
+test('draft rows keep their own unit system and convert from it when opened', () => {
+  const rows = F.toDraftRows([
+    { desc: 'Typed in US', length: '12 3/8', width: '1', height: '1', weight: '2.3', unit: 'us' },
+    { desc: 'Typed in metric', length: '100', width: '50', height: '20', weight: '10', unit: 'metric' },
+    { desc: 'No unit', length: '5', width: '5', height: '5', weight: '1', unit: 'bogus' }
+  ], 'unit');
+  assert.equal(rows[0].unit, 'us');
+  assert.equal(rows[1].unit, 'metric');
+  assert.ok(!('unit' in rows[2]));
+  const opened = F.fromDraftRows({ unit: 'metric', rows }, 'us');
+  assert.equal(opened[0].length, '12 3/8');
+  assert.equal(opened[0].weight, '2.3');
+  assert.equal(opened[1].length, '39.3701');
+  assert.equal(opened[2].length, '1.9685');
+});

@@ -301,6 +301,7 @@ kbd {
   background: var(--surface);
   box-shadow: var(--shadow);
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
   gap: 14px;
 }
 
@@ -466,9 +467,7 @@ kbd {
   gap: 10px 16px;
 }
 
-.sheet-actions { display: flex; flex-wrap: wrap; gap: 8px; }
-
-.sheet-actions select { max-width: 15rem; }
+.sheet-actions { display: flex; flex-wrap: wrap; gap: 8px; min-width: 0; }
 
 .tip { font-size: 12.5px; color: var(--muted); }
 
@@ -506,32 +505,48 @@ kbd {
 .btn-sm { height: 28px; padding: 0 10px; font-size: 13px; }
 
 .saved-panel {
-  border-top: 1px solid var(--line);
-  padding-top: 10px;
+  display: grid;
+  gap: 8px;
+  padding: 12px 14px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
   font-size: 13px;
 }
 
-.saved-panel summary {
-  cursor: pointer;
+.panel-title {
+  margin: 0;
+  font-size: 11px;
   font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
   color: var(--muted);
 }
 
-.saved-panel .count {
+.panel-empty { color: var(--muted); }
+
+.count {
   display: inline-block;
-  min-width: 1.5em;
+  min-width: 1.6em;
   padding: 0 5px;
   border-radius: 9px;
   background: var(--field);
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 600;
   text-align: center;
+}
+
+.btn[aria-expanded="true"] {
+  border-color: var(--accent);
+  background: var(--accent-soft);
 }
 
 .saved-panel ul {
   list-style: none;
-  margin: 8px 0 0;
+  margin: 0;
   padding: 0;
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(15rem, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(min(16rem, 100%), 1fr));
   gap: 6px;
 }
 
@@ -539,14 +554,16 @@ kbd {
   display: flex;
   align-items: center;
   gap: 8px;
+  min-width: 0;
   padding: 6px 6px 6px 10px;
   border: 1px solid var(--line);
   border-radius: 8px;
+  background: var(--surface);
 }
 
-.saved-panel li span { flex: 1; min-width: 0; }
-.saved-panel li b { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.saved-panel li small { color: var(--muted); }
+.saved-panel li span { flex: 1; min-width: 0; display: grid; }
+.saved-panel li b { overflow-wrap: anywhere; }
+.saved-panel li small { color: var(--muted); overflow-wrap: anywhere; }
 
 /* ----------------------------------------------------------- result tag -- */
 
@@ -810,7 +827,6 @@ kbd {
 
   .cell:not(.cell-desc) .cell-label { display: block; }
   .tag-class { font-size: 72px; }
-  .sheet-actions select { max-width: 100%; }
   .draft-form input { flex-basis: 100%; }
 }
 

@@ -392,6 +392,7 @@
   /**
    * Sheet rows -> draft rows. Drops lines with nothing typed and stores the
    * weight per unit, so a line-total weight is divided by its units first.
+   * A row's own `unit` ('us' or 'metric') is kept when it has one.
    */
   function toDraftRows(rows, weightMode) {
     return (rows || [])
@@ -401,6 +402,7 @@
       .map(function (r) {
         var out = {};
         DRAFT_FIELDS.forEach(function (f) { out[f] = cleanText(r[f]); });
+        if (r.unit === 'us' || r.unit === 'metric') out.unit = r.unit;
         if (weightMode === 'total') {
           var w = parseNumber(r.weight);
           var u = parseNumber(r.units);
@@ -411,10 +413,14 @@
       });
   }
 
-  /** Draft -> sheet rows in the given unit system, with units left blank. */
+  /**
+   * Draft -> sheet rows in the given unit system, with units left blank.
+   * Each row converts from its own unit when it has one, else the draft's.
+   */
   function fromDraftRows(draft, unit) {
-    var from = draft && draft.unit === 'metric' ? 'metric' : 'us';
+    var draftUnit = draft && draft.unit === 'metric' ? 'metric' : 'us';
     return ((draft && draft.rows) || []).map(function (r) {
+      var from = r.unit === 'us' || r.unit === 'metric' ? r.unit : draftUnit;
       return {
         desc: cleanText(r.desc),
         length: convertField(cleanText(r.length), 'dim', from, unit),

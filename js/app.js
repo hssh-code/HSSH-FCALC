@@ -9,6 +9,7 @@
   const F = window.FCalc;
   const STATE_KEY = 'hssh-fcalc:v1:state';
   const LIBRARY_KEY = 'hssh-fcalc:v1:library';
+  const DRAFTS_KEY = 'hssh-fcalc:v1:drafts';
   const PREVIEW = Boolean(window.FCALC_PREVIEW); // hosted preview: no print, downloads or install
   const FIELDS = ['desc', 'length', 'width', 'height', 'weight', 'units'];
   const MEASURE_FIELDS = ['length', 'width', 'height', 'weight'];
@@ -37,13 +38,17 @@
     }
   }
 
+  /** Returns false when the browser refuses to store (private windows, blocked site data). */
   function store(key, value) {
     try {
       localStorage.setItem(key, JSON.stringify(value));
+      return true;
     } catch (e) {
-      /* Storage can be blocked (private windows); the sheet still works. */
+      return false;
     }
   }
+
+  const STORAGE_BLOCKED = ' This browser is blocking saved data, so it will be gone when you close the page.';
 
   const asText = (v) => (v == null ? '' : String(v));
 
@@ -54,6 +59,7 @@
       rounding: 'exact',
       scale: F.DEFAULT_SCALE,
       example: true,
+      draftName: '',
       rows: EXAMPLE_ROWS.map((r) => Object.assign({ id: uid() }, r))
     };
   }
@@ -73,6 +79,7 @@
       rounding: ['exact', 'nearest', 'up'].includes(saved.rounding) ? saved.rounding : 'exact',
       scale: F.SCALES[saved.scale] ? saved.scale : F.DEFAULT_SCALE,
       example: Boolean(saved.example),
+      draftName: asText(saved.draftName).slice(0, 60),
       rows: rows.length ? rows : [blankRow()]
     };
   }
@@ -93,7 +100,27 @@
   }
 
   let state = restoreState(load(STATE_KEY));
+  function restoreDrafts(saved) {
+    if (!Array.isArray(saved)) return [];
+    return saved
+      .filter((d) => d && typeof d === 'object' && d.name && Array.isArray(d.rows))
+      .map((d) => ({
+        id: asText(d.id) || uid(),
+        name: asText(d.name).slice(0, 60),
+        unit: d.unit === 'metric' ? 'metric' : 'us',
+        savedAt: Number(d.savedAt) || 0,
+        rows: d.rows
+          .filter((r) => r && typeof r === 'object')
+          .map((r) => {
+            const row = {};
+            F.DRAFT_FIELDS.forEach((f) => { row[f] = asText(r[f]); });
+            return row;
+          })
+      }));
+  }
+
   let library = restoreLibrary(load(LIBRARY_KEY));
+  let drafts = restoreDrafts(load(DRAFTS_KEY));
   let lastResult = null;
 
   const persist = () => {
@@ -103,6 +130,7 @@
       rounding: state.rounding,
       scale: state.scale,
       example: state.example,
+      draftName: state.draftName,
       rows: state.rows.map((r) => {
         const o = {};
         FIELDS.forEach((f) => { o[f] = r[f]; });
@@ -482,9 +510,9 @@
     const existing = library.findIndex((it) => it.name.toLowerCase() === name.toLowerCase());
     if (existing >= 0) library[existing] = entry;
     else library.push(entry);
-    store(LIBRARY_KEY, library);
+    const kept = store(LIBRARY_KEY, library);
     renderLibrary();
-    toast((existing >= 0 ? 'Updated ' : 'Saved ') + '"' + name + '" in saved items.');
+    toast((existing >= 0 ? 'Updated ' : 'Saved ') + '"' + name + '" in saved items.' + (kept ? '' : STORAGE_BLOCKED));
   }
 
   function addFromLibrary(id) {
@@ -564,16 +592,174 @@
   }
 
   function clearAll() {
-    const before = { rows: cloneRows(), example: state.example };
+    const before = { rows: cloneRows(), example: state.example, draftName: state.draftName };
     state.rows = [blankRow()];
     state.example = false;
+    state.draftName = '';
+    closeDraftForm(false);
     renderLines();
     focusField(state.rows[0].id, 'length');
     toast('Sheet cleared.', 'Undo', () => {
       state.rows = before.rows;
       state.example = before.example;
+      state.draftName = before.draftName;
       renderLines();
     });
+  }
+
+  // -------------------------------------------------------------- drafts --
+
+  const draftForm = $('draftForm');
+  const draftNameInput = $('draftName');
+
+  function suggestDraftName() {
+    const named = state.rows.map((r) => r.desc.trim()).filter(Boolean);
+    if (named.length) {
+      const first = named[0].slice(0, 40);
+      return named.length > 1 ? first + ' + ' + (named.length - 1) + ' more' : first;
+    }
+    return 'Draft ' + new Date().toLocaleString(undefined, {
+      month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit'
+    });
+  }
+
+  function openDraftForm() {
+    if (!F.toDraftRows(state.rows, state.weightMode).length) {
+      toast('Add at least one item before saving a draft.');
+      return;
+    }
+    draftForm.hidden = false;
+    $('saveDraftBtn').setAttribute('aria-expanded', 'true');
+    draftNameInput.removeAttribute('aria-invalid');
+    draftNameInput.value = state.draftName || suggestDraftName();
+    draftNameInput.focus();
+    draftNameInput.select();
+  }
+
+  function closeDraftForm(returnFocus) {
+    if (draftForm.hidden) return;
+    draftForm.hidden = true;
+    $('saveDraftBtn').setAttribute('aria-expanded', 'false');
+    if (returnFocus) $('saveDraftBtn').focus();
+  }
+
+  function saveDraft() {
+    const name = draftNameInput.value.trim().slice(0, 60);
+    if (!name) {
+      draftNameInput.setAttribute('aria-invalid', 'true');
+      draftNameInput.focus();
+      toast('Give the draft a name so you can find it later.');
+      return;
+    }
+    const rows = F.toDraftRows(state.rows, state.weightMode);
+    if (!rows.length) {
+      closeDraftForm(true);
+      toast('Add at least one item before saving a draft.');
+      return;
+    }
+    const existing = drafts.findIndex((d) => d.name.toLowerCase() === name.toLowerCase());
+    const draft = {
+      id: existing >= 0 ? drafts[existing].id : uid(),
+      name: name,
+      unit: state.unit,
+      savedAt: Date.now(),
+      rows: rows
+    };
+    if (existing >= 0) drafts[existing] = draft;
+    else drafts.push(draft);
+    const kept = store(DRAFTS_KEY, drafts);
+    state.draftName = name;
+    persist();
+    renderDrafts();
+    closeDraftForm(true);
+    toast((existing >= 0 ? 'Updated' : 'Saved') + ' draft "' + name + '" with ' +
+      rows.length + (rows.length === 1 ? ' item.' : ' items.') + (kept ? '' : STORAGE_BLOCKED));
+  }
+
+  function loadDraft(id) {
+    const draft = drafts.find((d) => d.id === id);
+    if (!draft) return;
+    const before = {
+      rows: cloneRows(), example: state.example, draftName: state.draftName, weightMode: state.weightMode
+    };
+    const rows = F.fromDraftRows(draft, state.unit).map((r, i) => {
+      const row = Object.assign({ id: uid() }, r);
+      // Opened in the other unit system: remember what was saved so switching
+      // back shows the original entries (2.3 lbs, not 2.3001 lbs).
+      if (draft.unit !== state.unit) {
+        const values = {};
+        const produced = {};
+        MEASURE_FIELDS.forEach((f) => {
+          values[f] = asText(draft.rows[i][f]).trim();
+          produced[f] = row[f];
+        });
+        row.beforeSwitch = { unit: draft.unit, values: values, produced: produced };
+      }
+      return row;
+    });
+    // Draft weights are per unit, so the sheet has to read them that way.
+    const switchedMode = state.weightMode !== 'unit';
+    state.weightMode = 'unit';
+    state.rows = rows.length ? rows : [blankRow()];
+    state.example = false;
+    state.draftName = draft.name;
+    closeDraftForm(false);
+    syncControls();
+    renderLines();
+    focusField(state.rows[0].id, 'units');
+    toast('Opened "' + draft.name + '". Enter the units for each item.' +
+      (switchedMode ? ' Weight is now entered per unit.' : ''), 'Undo', () => {
+      state.rows = before.rows;
+      state.example = before.example;
+      state.draftName = before.draftName;
+      state.weightMode = before.weightMode;
+      syncControls();
+      renderLines();
+    });
+  }
+
+  function deleteDraft(id) {
+    const index = drafts.findIndex((d) => d.id === id);
+    if (index < 0) return;
+    const removed = drafts[index];
+    drafts.splice(index, 1);
+    store(DRAFTS_KEY, drafts);
+    renderDrafts();
+    toast('Deleted draft "' + removed.name + '".', 'Undo', () => {
+      drafts.splice(Math.min(index, drafts.length), 0, removed);
+      store(DRAFTS_KEY, drafts);
+      renderDrafts();
+    });
+  }
+
+  function renderDrafts() {
+    const pick = $('draftPick');
+    const sorted = drafts.slice().sort((a, b) => b.savedAt - a.savedAt);
+    pick.replaceChildren(el('option', { value: '', text: drafts.length ? 'Open draft...' : 'No drafts yet' }));
+    pick.disabled = !drafts.length;
+    sorted.forEach((d) => pick.append(el('option', { value: d.id, text: d.name })));
+
+    $('drafts').hidden = !drafts.length;
+    $('draftCount').textContent = String(drafts.length);
+    $('draftList').replaceChildren(...sorted.map((d) => {
+      const when = d.savedAt
+        ? new Date(d.savedAt).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })
+        : '';
+      const info = el('span');
+      info.append(
+        el('b', { text: d.name }),
+        el('small', {
+          text: d.rows.length + (d.rows.length === 1 ? ' item' : ' items') + (when ? ', saved ' + when : '')
+        })
+      );
+      const open = el('button', {
+        type: 'button', className: 'btn btn-sm', text: 'Open', 'data-draft-open': d.id,
+        'aria-label': 'Open draft ' + d.name
+      });
+      const del = iconButton('remove', 'Delete draft ' + d.name, 'remove');
+      del.dataset.draftDelete = d.id;
+      return el('li', {}, [info, open, del]);
+    }));
   }
 
   function copySummary() {
@@ -646,16 +832,28 @@
   });
 
   linesEl.addEventListener('keydown', (e) => {
-    if (e.key !== 'Enter' || !e.target.dataset.field) return;
-    e.preventDefault();
+    const field = e.target.dataset.field;
+    if (!field || e.isComposing) return;
     const li = e.target.closest('.line');
     const index = state.rows.findIndex((r) => r.id === li.dataset.id);
-    const field = e.target.dataset.field === 'desc' ? 'length' : e.target.dataset.field;
+    if (index < 0) return;
+
+    // Up and Down jump to the same field on the neighbouring line, like a spreadsheet.
+    if ((e.key === 'ArrowUp' || e.key === 'ArrowDown') && !(e.altKey || e.ctrlKey || e.metaKey || e.shiftKey)) {
+      e.preventDefault();
+      const target = state.rows[index + (e.key === 'ArrowDown' ? 1 : -1)];
+      if (target) focusField(target.id, field);
+      return;
+    }
+
+    if (e.key !== 'Enter') return;
+    e.preventDefault();
+    const next = field === 'desc' ? 'length' : field;
     if (index === state.rows.length - 1) {
       const row = addRow();
       focusField(row.id, 'length');
     } else {
-      focusField(state.rows[index + 1].id, field);
+      focusField(state.rows[index + 1].id, next);
     }
   });
 
@@ -699,6 +897,42 @@
       store(LIBRARY_KEY, library);
       renderLibrary();
     });
+  });
+
+  $('saveDraftBtn').addEventListener('click', () => {
+    if (draftForm.hidden) openDraftForm();
+    else closeDraftForm(true);
+  });
+
+  draftForm.addEventListener('submit', (e) => {
+    e.preventDefault();
+    saveDraft();
+  });
+
+  draftForm.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') {
+      e.preventDefault();
+      closeDraftForm(true);
+    }
+  });
+
+  draftNameInput.addEventListener('input', () => draftNameInput.removeAttribute('aria-invalid'));
+  $('draftCancel').addEventListener('click', () => closeDraftForm(true));
+
+  $('draftPick').addEventListener('change', (e) => {
+    const id = e.target.value;
+    e.target.value = '';
+    if (id) loadDraft(id);
+  });
+
+  $('draftList').addEventListener('click', (e) => {
+    const open = e.target.closest('[data-draft-open]');
+    if (open) {
+      loadDraft(open.dataset.draftOpen);
+      return;
+    }
+    const del = e.target.closest('[data-draft-delete]');
+    if (del) deleteDraft(del.dataset.draftDelete);
   });
 
   document.querySelectorAll('input[name="unit"]').forEach((r) => {
@@ -764,5 +998,6 @@
 
   syncControls();
   renderLibrary();
+  renderDrafts();
   renderLines();
 })();

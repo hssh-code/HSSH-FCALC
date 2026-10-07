@@ -185,3 +185,42 @@ test('summary text includes totals and the scale used', () => {
   assert.match(text, /Est\. class:\s+125 \(NMFC 2025 scale\)/);
   assert.match(text, /rounded up to the next whole in/);
 });
+
+test('drafts keep description, dimensions and weight, never units', () => {
+  const rows = [
+    { desc: ' SKU A ', length: '12 3/8', width: '8 3/8', height: '4 5/8', weight: '2.3', units: '9' },
+    { desc: '', length: '', width: '', height: '', weight: '', units: '4' },
+    { desc: 'SKU B', length: '9.375', width: '', height: '', weight: '', units: '' }
+  ];
+  const draft = F.toDraftRows(rows, 'unit');
+  assert.deepEqual(draft, [
+    { desc: 'SKU A', length: '12 3/8', width: '8 3/8', height: '4 5/8', weight: '2.3' },
+    { desc: 'SKU B', length: '9.375', width: '', height: '', weight: '' }
+  ]);
+  assert.ok(draft.every((r) => !('units' in r)));
+});
+
+test('drafts store per-unit weight when weights were entered as line totals', () => {
+  const draft = F.toDraftRows([
+    { desc: 'A', length: 10, width: 10, height: 10, weight: '20.7', units: '9' },
+    { desc: 'B', length: 10, width: 10, height: 10, weight: '5', units: '' },
+    { desc: 'C', length: 10, width: 10, height: 10, weight: '5', units: 'abc' }
+  ], 'total');
+  assert.equal(draft[0].weight, '2.3');
+  assert.equal(draft[1].weight, '5');
+  assert.equal(draft[2].weight, '5');
+});
+
+test('loading a draft restores rows with blank units and converts units when needed', () => {
+  const draft = {
+    unit: 'us',
+    rows: [{ desc: 'SKU A', length: '12 3/8', width: '10', height: 'abc', weight: '2.3' }]
+  };
+  assert.deepEqual(F.fromDraftRows(draft, 'us'), [
+    { desc: 'SKU A', length: '12 3/8', width: '10', height: 'abc', weight: '2.3', units: '' }
+  ]);
+  assert.deepEqual(F.fromDraftRows(draft, 'metric'), [
+    { desc: 'SKU A', length: '31.4325', width: '25.4', height: 'abc', weight: '1.0433', units: '' }
+  ]);
+  assert.deepEqual(F.fromDraftRows({}, 'us'), []);
+});

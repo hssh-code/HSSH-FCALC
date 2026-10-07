@@ -35,6 +35,8 @@ still there the next time you open it.
 - **Next-class guidance**: how much cube to trim to reach the next cheaper class, and how close you are to slipping into the next pricier one.
 - **Unit switching converts your entries**: switching to Metric converts every line, and switching back restores exactly what you typed.
 - **Saved items**: save a carton or pallet you ship often and add it again in one click.
+- **Drafts**: save the whole sheet under a name (description, length, width, height and weight of every item) and open it again later. Units are not saved, so you enter fresh quantities for each shipment.
+- **Spreadsheet-style keys**: the Up and Down arrows jump to the same field on the line above or below; Enter on the last line adds a new one.
 - **Copy summary** for emails and quote requests, **Export CSV** for spreadsheets, and a clean **Print** layout.
 - **Undo** after removing a line or clearing the sheet.
 - Light and dark mode, and a layout that works on phones.

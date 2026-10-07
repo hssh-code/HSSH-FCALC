@@ -377,6 +377,55 @@
     return lines.join('\n');
   }
 
+  // ---------------------------------------------------------------------------
+  // Drafts
+  // ---------------------------------------------------------------------------
+
+  // A draft keeps what describes each SKU. Units are left out on purpose:
+  // quantities change from one shipment to the next.
+  var DRAFT_FIELDS = ['desc', 'length', 'width', 'height', 'weight'];
+
+  function cleanText(v) {
+    return v == null ? '' : String(v).trim();
+  }
+
+  /**
+   * Sheet rows -> draft rows. Drops lines with nothing typed and stores the
+   * weight per unit, so a line-total weight is divided by its units first.
+   */
+  function toDraftRows(rows, weightMode) {
+    return (rows || [])
+      .filter(function (r) {
+        return r && DRAFT_FIELDS.some(function (f) { return cleanText(r[f]) !== ''; });
+      })
+      .map(function (r) {
+        var out = {};
+        DRAFT_FIELDS.forEach(function (f) { out[f] = cleanText(r[f]); });
+        if (weightMode === 'total') {
+          var w = parseNumber(r.weight);
+          var u = parseNumber(r.units);
+          if (u === null) u = 1;
+          if (w !== null && !isNaN(w) && !isNaN(u) && u > 0) out.weight = trimNumber(w / u, 4);
+        }
+        return out;
+      });
+  }
+
+  /** Draft -> sheet rows in the given unit system, with units left blank. */
+  function fromDraftRows(draft, unit) {
+    var from = draft && draft.unit === 'metric' ? 'metric' : 'us';
+    return ((draft && draft.rows) || []).map(function (r) {
+      return {
+        desc: cleanText(r.desc),
+        length: convertField(cleanText(r.length), 'dim', from, unit),
+        width: convertField(cleanText(r.width), 'dim', from, unit),
+        height: convertField(cleanText(r.height), 'dim', from, unit),
+        weight: convertField(cleanText(r.weight), 'weight', from, unit),
+        units: ''
+      };
+    });
+  }
+
   return {
     CM_PER_IN: CM_PER_IN,
     KG_PER_LB: KG_PER_LB,
@@ -397,6 +446,9 @@
     fmtFixed: fmtFixed,
     labels: labels,
     buildCsv: buildCsv,
-    buildSummary: buildSummary
+    buildSummary: buildSummary,
+    DRAFT_FIELDS: DRAFT_FIELDS,
+    toDraftRows: toDraftRows,
+    fromDraftRows: fromDraftRows
   };
 });

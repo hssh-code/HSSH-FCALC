@@ -97,10 +97,42 @@
             <label class="sr-only" for="libraryPick">Add a saved item</label>
             <select id="libraryPick"></select>
           </div>
-          <p class="tip">Fractions work: type <kbd>12 3/8</kbd> or <kbd>12-3/8</kbd>. Enter moves to the next line.</p>
+          <div class="sheet-actions">
+            <button type="button" class="btn" id="saveDraftBtn" aria-controls="draftForm" aria-expanded="false">
+              <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M4 3h9l3 3v11H4z"/><path d="M7 3v4h6V3M7 17v-5h6v5"/></svg>
+              Save draft
+            </button>
+            <label class="sr-only" for="draftPick">Open a saved draft</label>
+            <select id="draftPick"></select>
+          </div>
         </div>
 
-        <details class="library" id="library" hidden>
+        <form class="draft-form" id="draftForm" hidden novalidate>
+          <label class="field-label" for="draftName">Draft name</label>
+          <div class="draft-form-row">
+            <input id="draftName" type="text" maxlength="60" autocomplete="off" spellcheck="false"
+              aria-describedby="draftNote">
+            <button type="submit" class="btn btn-primary">Save</button>
+            <button type="button" class="btn" id="draftCancel">Cancel</button>
+          </div>
+          <p class="draft-note" id="draftNote">
+            Saves the description, length, width, height and weight of every item. Units are not saved,
+            so you enter fresh quantities each time you open the draft.
+          </p>
+        </form>
+
+        <p class="tip">
+          Fractions work: type <kbd>12 3/8</kbd> or <kbd>12-3/8</kbd>.
+          <kbd aria-label="Up arrow">&uarr;</kbd> <kbd aria-label="Down arrow">&darr;</kbd> jump to the same field on the line above or below.
+          Enter on the last line adds a new one.
+        </p>
+
+        <details class="saved-panel" id="drafts" hidden>
+          <summary>Drafts <span class="count" id="draftCount">0</span></summary>
+          <ul id="draftList"></ul>
+        </details>
+
+        <details class="saved-panel" id="library" hidden>
           <summary>Saved items <span class="count" id="libraryCount">0</span></summary>
           <ul id="libraryList"></ul>
         </details>
@@ -117,16 +149,16 @@
 
           <dl class="tag-stats">
             <div>
-              <dt>Density</dt>
-              <dd><b id="densityMain">-</b><span id="densityAlt"></span></dd>
-            </div>
-            <div>
               <dt>Cube</dt>
               <dd><b id="cubeMain">-</b><span id="cubeAlt"></span></dd>
             </div>
             <div>
               <dt>Weight</dt>
               <dd><b id="weightMain">-</b><span id="weightAlt"></span></dd>
+            </div>
+            <div>
+              <dt>Density</dt>
+              <dd><b id="densityMain">-</b><span id="densityAlt"></span></dd>
             </div>
           </dl>
 

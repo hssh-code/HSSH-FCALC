@@ -263,8 +263,8 @@ test('left-out lines are flagged in the summary and CSV instead of vanishing', (
   assert.match(text, /Totals cover 1 of 3 item lines\./);
   const csv = F.buildCsv(state, result).trim().split('\r\n');
   assert.equal(csv.length, 5);
-  assert.match(csv[2], /^2,SKU-2,20,16,12,1l\.5,6,,,,,,,,Left out of totals: check weight$/);
-  assert.match(csv[3], /^4,SKU-4,10,10,,,1,,,,,,,,"Left out of totals: missing height, weight"$/);
+  assert.equal(csv[2], '2,SKU-2,,,,,,,,,,,,,"Left out of totals: check weight (typed: length 20, width 16, height 12, weight 1l.5, units 6)"');
+  assert.equal(csv[3], '4,SKU-4,,,,,,,,,,,,,"Left out of totals: missing height, weight (typed: length 10, width 10, units 1)"');
   assert.match(csv[4], /^Total,.*,Covers 1 of 3 item lines$/);
 });
 

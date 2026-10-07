@@ -114,7 +114,8 @@
         length: asText(it.length),
         width: asText(it.width),
         height: asText(it.height),
-        weight: asText(it.weight)
+        weight: asText(it.weight),
+        savedAt: typeof it.savedAt === 'number' && isFinite(it.savedAt) ? it.savedAt : 0
       }))
       .filter((it) => it.name);
   }
@@ -159,27 +160,40 @@
   // neither this window's unsaved work nor other windows' saves get lost.
   const pending = { library: [], drafts: [] };
 
+  /**
+   * Replay pending changes over a fresh read. A change is skipped when the
+   * stored copy of that entry was saved later (by another window), so an old
+   * unsaved change never overwrites newer work.
+   */
   function applyPending(list, ops) {
     return ops.reduce((acc, op) => {
-      const rest = acc.filter((x) => x.id !== op.id &&
-        !(op.entry && x.name.toLowerCase() === op.entry.name.toLowerCase()));
+      const same = (x) => x.id === op.id ||
+        Boolean(op.entry && x.name.toLowerCase() === op.entry.name.toLowerCase());
+      if (acc.some((x) => same(x) && (x.savedAt || 0) > op.at)) return acc;
+      const rest = acc.filter((x) => !same(x));
       return op.entry ? rest.concat(op.entry) : rest;
     }, list);
   }
 
   /** Record one change ({ id, entry } to upsert, { id } to delete) and write the list. */
   function commitLibrary(op) {
-    pending.library.push(op);
+    pending.library.push(Object.assign({ at: Date.now() }, op));
     const kept = store(LIBRARY_KEY, library);
     if (kept) pending.library = [];
     return kept;
   }
 
   function commitDrafts(op) {
-    pending.drafts.push(op);
+    pending.drafts.push(Object.assign({ at: Date.now() }, op));
     const kept = store(DRAFTS_KEY, drafts);
     if (kept) pending.drafts = [];
     return kept;
+  }
+
+  /** Once storage works again, write pending changes without waiting for this window's next edit. */
+  function flushPending() {
+    if (pending.library.length && store(LIBRARY_KEY, library)) pending.library = [];
+    if (pending.drafts.length && store(DRAFTS_KEY, drafts)) pending.drafts = [];
   }
 
   function refreshLibrary() {
@@ -627,7 +641,8 @@
       height: typed.height.trim(),
       weight: state.weightMode === 'total' && units > 0
         ? F.trimNumber(F.parseNumber(typed.weight) / units, 4)
-        : typed.weight.trim()
+        : typed.weight.trim(),
+      savedAt: Date.now()
     };
     refreshLibrary();
     const existing = library.findIndex((it) => it.name.toLowerCase() === name.toLowerCase());
@@ -653,6 +668,17 @@
     const data = { desc: it.name, units: '1' };
     ['length', 'width', 'height'].forEach((f) => { data[f] = F.convertField(it[f], 'dim', it.unit, state.unit); });
     data.weight = F.convertField(it.weight, 'weight', it.unit, state.unit);
+    // Saved items keep weight per unit. On a line-total sheet, switch the
+    // sheet to per unit first (as opening a draft does) so every line reads
+    // its weight the same way; Undo puts everything back.
+    const before = { rows: cloneRows(), weightMode: state.weightMode, example: state.example };
+    const switchedMode = state.weightMode === 'total';
+    let converted = 0;
+    if (switchedMode) {
+      state.rows.forEach((r) => { if (toPerUnit(r)) converted++; });
+      state.weightMode = 'unit';
+      syncControls();
+    }
     state.example = false;
 
     // Fill the last line if it is still blank, otherwise add a new one.
@@ -666,45 +692,45 @@
       state.rows.push(row);
     }
     rememberTyped(row, it, it.unit);
-    delete row.weightEach;
-    // Saved weights are per unit. On a line-total sheet this line's weight
-    // follows the units typed for it, until the weight is edited by hand.
-    const each = F.parseNumber(data.weight);
-    if (state.weightMode === 'total' && each !== null && !isNaN(each)) {
-      row.weightEach = { each: each, typed: it.weight, shown: row.weight };
-    }
     renderLines(); // renders and autosaves with everything above in place
     focusField(row.id, 'units');
-    if (row.weightEach) {
-      toast('Added "' + it.name + '" for 1 unit. Weight is entered as the line total here, so this ' +
-        'line\'s weight follows the units you type until you change the weight yourself.');
+    if (switchedMode) {
+      toast('Added "' + it.name + '". Saved items keep weight per unit, so Weight entered is now Per unit' +
+        (converted ? " and the other lines' totals were divided by their units." : '.'), 'Undo', () => {
+        state.rows = before.rows;
+        state.weightMode = before.weightMode;
+        state.example = before.example;
+        syncControls();
+        renderLines();
+      });
     }
   }
 
-  /** Keep a saved item's line-total weight in step with its units (see addFromLibrary). */
-  function followUnits(row) {
-    const link = row.weightEach;
-    if (!link || state.weightMode !== 'total' || row.weight !== link.shown) return;
+  /**
+   * Turn a line's line-total weight into a per-unit weight (20.7 lbs for 9
+   * units becomes 2.3). Returns false for lines left as typed: one unit, or no
+   * usable weight or units.
+   */
+  function toPerUnit(row) {
+    const w = F.parseNumber(row.weight);
     const typedUnits = F.parseNumber(row.units);
-    const n = typedUnits === null ? 1 : typedUnits;
-    if (isNaN(n) || n < 1 || Math.floor(n) !== n) return;
-    const weight = F.trimNumber(link.each * n, 4);
-    // Replace (not mutate) the shared objects: duplicated lines start out sharing them.
-    row.weightEach = { each: link.each, typed: link.typed, shown: weight };
+    const u = typedUnits === null ? 1 : typedUnits;
+    if (w === null || isNaN(w) || isNaN(u) || u <= 1 || Math.floor(u) !== u) return false;
+    const each = F.trimNumber(w / u, 4);
     const back = row.beforeSwitch;
     if (back && back.produced.weight === row.weight) {
-      const typedEach = F.parseNumber(link.typed);
+      const typed = F.parseNumber(back.values.weight);
+      // New objects, not edits: duplicated lines and undo snapshots share them.
       row.beforeSwitch = {
         unit: back.unit,
         values: Object.assign({}, back.values, {
-          weight: typedEach === null || isNaN(typedEach) ? back.values.weight : F.trimNumber(typedEach * n, 4)
+          weight: typed === null || isNaN(typed) ? back.values.weight : F.trimNumber(typed / u, 4)
         }),
-        produced: Object.assign({}, back.produced, { weight: weight })
+        produced: Object.assign({}, back.produced, { weight: each })
       };
     }
-    row.weight = weight;
-    const input = $('weight-' + row.id);
-    if (input) input.value = weight;
+    row.weight = each;
+    return true;
   }
 
   function deleteFromLibrary(id, position) {
@@ -1063,8 +1089,6 @@
     const row = state.rows.find((r) => r.id === li.dataset.id);
     if (!row) return;
     row[input.dataset.field] = input.value;
-    if (input.dataset.field === 'weight') delete row.weightEach;
-    if (input.dataset.field === 'units') followUnits(row);
     if (state.example) state.example = false;
     update();
   });
@@ -1197,6 +1221,7 @@
 
   // Keep the lists current when another window saves or deletes.
   window.addEventListener('storage', (e) => {
+    if (e.key === DRAFTS_KEY || e.key === LIBRARY_KEY || e.key === null) setTimeout(flushPending, 0);
     if (e.key === null || e.key === DRAFTS_KEY) {
       keepListFocus(() => {
         refreshDrafts();

@@ -358,9 +358,15 @@
           l.pcf.toFixed(2), l.kgm3.toFixed(2), c ? c.cls : '', ''
         ].map(csvCell).join(','));
       } else if (skipped[i + 1]) {
+        // Typed text goes in the note, not the number columns, so a spreadsheet
+        // never turns an entry like 3/4 into a date.
+        var typed = ['length', 'width', 'height', 'weight', 'units']
+          .filter(function (f) { return cleanText(row[f]) !== ''; })
+          .map(function (f) { return f + ' ' + cleanText(row[f]); });
         out.push([
-          i + 1, row.desc || '', row.length, row.width, row.height, row.weight, row.units,
-          '', '', '', '', '', '', '', 'Left out of totals: ' + skipped[i + 1]
+          i + 1, row.desc || '', '', '', '', '', '',
+          '', '', '', '', '', '', '',
+          'Left out of totals: ' + skipped[i + 1] + (typed.length ? ' (typed: ' + typed.join(', ') + ')' : '')
         ].map(csvCell).join(','));
       }
     });

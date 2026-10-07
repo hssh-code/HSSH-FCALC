@@ -154,30 +154,44 @@
 
   // Another window may have changed the lists since this page loaded. Re-read
   // them before every change so one window never overwrites the other's work.
-  // After a failed write (blocked or full storage) the stored copy is older
-  // than the one on screen, so it is not read back until a write succeeds.
-  const unsaved = { library: false, drafts: false };
+  // Changes this window could not write (blocked or full storage) are kept as
+  // pending and replayed over every fresh read until a write succeeds, so
+  // neither this window's unsaved work nor other windows' saves get lost.
+  const pending = { library: [], drafts: [] };
 
-  function saveLibrary() {
-    unsaved.library = !store(LIBRARY_KEY, library);
-    return !unsaved.library;
+  function applyPending(list, ops) {
+    return ops.reduce((acc, op) => {
+      const rest = acc.filter((x) => x.id !== op.id &&
+        !(op.entry && x.name.toLowerCase() === op.entry.name.toLowerCase()));
+      return op.entry ? rest.concat(op.entry) : rest;
+    }, list);
   }
 
-  function saveDrafts() {
-    unsaved.drafts = !store(DRAFTS_KEY, drafts);
-    return !unsaved.drafts;
+  /** Record one change ({ id, entry } to upsert, { id } to delete) and write the list. */
+  function commitLibrary(op) {
+    pending.library.push(op);
+    const kept = store(LIBRARY_KEY, library);
+    if (kept) pending.library = [];
+    return kept;
+  }
+
+  function commitDrafts(op) {
+    pending.drafts.push(op);
+    const kept = store(DRAFTS_KEY, drafts);
+    if (kept) pending.drafts = [];
+    return kept;
   }
 
   function refreshLibrary() {
-    if (unsaved.library) return;
     const saved = load(LIBRARY_KEY);
-    if (saved !== null) library = safely(() => restoreLibrary(saved || []), library);
+    if (saved === null) return;
+    library = applyPending(safely(() => restoreLibrary(saved || []), library), pending.library);
   }
 
   function refreshDrafts() {
-    if (unsaved.drafts) return;
     const saved = load(DRAFTS_KEY);
-    if (saved !== null) drafts = safely(() => restoreDrafts(saved || []), drafts);
+    if (saved === null) return;
+    drafts = applyPending(safely(() => restoreDrafts(saved || []), drafts), pending.drafts);
   }
 
   const persist = () => {
@@ -585,10 +599,10 @@
   }
 
   /** After a list re-renders, keep keyboard focus on the entry that took the removed one's place. */
-  function focusInList(list, position, fallbackId) {
+  function focusInList(list, position, fallbackId, options) {
     const li = list.children[Math.min(position, list.children.length - 1)];
     const btn = li && li.querySelector('.btn');
-    (btn || $(fallbackId)).focus();
+    (btn || $(fallbackId)).focus(options);
   }
 
   function saveToLibrary(row) {
@@ -623,7 +637,7 @@
     } else {
       library.push(entry);
     }
-    const kept = saveLibrary();
+    const kept = commitLibrary({ id: entry.id, entry: entry });
     renderLibrary();
     toast((existing >= 0 ? 'Updated ' : 'Saved ') + '"' + name + '" in saved items.' + (kept ? '' : STORAGE_BLOCKED));
   }
@@ -647,13 +661,50 @@
     if (FIELDS.every((f) => !last[f])) {
       Object.assign(last, data);
       row = last;
-      rememberTyped(row, it, it.unit);
-      renderLines();
     } else {
-      row = addRow(null, data);
-      rememberTyped(row, it, it.unit);
+      row = Object.assign(blankRow(), data);
+      state.rows.push(row);
     }
+    rememberTyped(row, it, it.unit);
+    delete row.weightEach;
+    // Saved weights are per unit. On a line-total sheet this line's weight
+    // follows the units typed for it, until the weight is edited by hand.
+    const each = F.parseNumber(data.weight);
+    if (state.weightMode === 'total' && each !== null && !isNaN(each)) {
+      row.weightEach = { each: each, typed: it.weight, shown: row.weight };
+    }
+    renderLines(); // renders and autosaves with everything above in place
     focusField(row.id, 'units');
+    if (row.weightEach) {
+      toast('Added "' + it.name + '" for 1 unit. Weight is entered as the line total here, so this ' +
+        'line\'s weight follows the units you type until you change the weight yourself.');
+    }
+  }
+
+  /** Keep a saved item's line-total weight in step with its units (see addFromLibrary). */
+  function followUnits(row) {
+    const link = row.weightEach;
+    if (!link || state.weightMode !== 'total' || row.weight !== link.shown) return;
+    const typedUnits = F.parseNumber(row.units);
+    const n = typedUnits === null ? 1 : typedUnits;
+    if (isNaN(n) || n < 1 || Math.floor(n) !== n) return;
+    const weight = F.trimNumber(link.each * n, 4);
+    // Replace (not mutate) the shared objects: duplicated lines start out sharing them.
+    row.weightEach = { each: link.each, typed: link.typed, shown: weight };
+    const back = row.beforeSwitch;
+    if (back && back.produced.weight === row.weight) {
+      const typedEach = F.parseNumber(link.typed);
+      row.beforeSwitch = {
+        unit: back.unit,
+        values: Object.assign({}, back.values, {
+          weight: typedEach === null || isNaN(typedEach) ? back.values.weight : F.trimNumber(typedEach * n, 4)
+        }),
+        produced: Object.assign({}, back.produced, { weight: weight })
+      };
+    }
+    row.weight = weight;
+    const input = $('weight-' + row.id);
+    if (input) input.value = weight;
   }
 
   function deleteFromLibrary(id, position) {
@@ -664,7 +715,7 @@
       return;
     }
     library = library.filter((it) => it.id !== id);
-    const kept = saveLibrary();
+    const kept = commitLibrary({ id: id });
     renderLibrary();
     focusInList($('libraryList'), position, 'libraryToggle');
     toast('Deleted "' + removed.name + '".' + (kept ? '' : STORAGE_BLOCKED), 'Undo', () => {
@@ -676,7 +727,7 @@
         return;
       }
       if (!library.some((it) => it.id === removed.id)) library.push(removed);
-      saveLibrary();
+      commitLibrary({ id: removed.id, entry: removed });
       renderLibrary();
       setPanel('library', 'libraryToggle', true);
       const again = $('libraryList').querySelector('[data-library-add="' + CSS.escape(removed.id) + '"]');
@@ -812,7 +863,7 @@
     };
     if (existing >= 0) drafts[existing] = draft;
     else drafts.push(draft);
-    const kept = saveDrafts();
+    const kept = commitDrafts({ id: draft.id, entry: draft });
     state.draftName = name;
     persist();
     renderDrafts();
@@ -867,7 +918,7 @@
       return;
     }
     drafts = drafts.filter((d) => d.id !== id);
-    const kept = saveDrafts();
+    const kept = commitDrafts({ id: id });
     renderDrafts();
     focusInList($('draftList'), position, 'draftsToggle');
     toast('Deleted draft "' + removed.name + '".' + (kept ? '' : STORAGE_BLOCKED), 'Undo', () => {
@@ -879,7 +930,7 @@
         return;
       }
       if (!drafts.some((d) => d.id === removed.id)) drafts.push(removed);
-      saveDrafts();
+      commitDrafts({ id: removed.id, entry: removed });
       renderDrafts();
       setPanel('drafts', 'draftsToggle', true);
       const again = $('draftList').querySelector('[data-draft-open="' + CSS.escape(removed.id) + '"]');
@@ -912,8 +963,17 @@
       }));
   }
 
+  /** ' 2 lines are left out ...' when some lines are incomplete or invalid, else ''. */
+  function leftOutNote(where) {
+    const n = F.leftOutLines(state, lastResult).length;
+    if (!n) return '';
+    return ' ' + n + (n === 1 ? ' line is' : ' lines are') + ' left out of the totals because ' +
+      (n === 1 ? 'it is' : 'they are') + ' incomplete, and ' + where + ' says so.';
+  }
+
   function copySummary() {
     const text = F.buildSummary(state, lastResult);
+    const copied = 'Summary copied. Paste it into an email or quote request.' + leftOutNote('the summary');
     const fallback = () => {
       const ta = el('textarea', { readonly: '' });
       ta.value = text;
@@ -924,11 +984,11 @@
       let ok = false;
       try { ok = document.execCommand('copy'); } catch (e) { ok = false; }
       ta.remove();
-      toast(ok ? 'Summary copied. Paste it into an email or quote request.' : 'Your browser blocked copying. Try again from a normal browser window.');
+      toast(ok ? copied : 'Your browser blocked copying. Try again from a normal browser window.');
     };
     if (navigator.clipboard && navigator.clipboard.writeText) {
       navigator.clipboard.writeText(text)
-        .then(() => toast('Summary copied. Paste it into an email or quote request.'))
+        .then(() => toast(copied))
         .catch(fallback);
     } else {
       fallback();
@@ -948,6 +1008,8 @@
     a.click();
     a.remove();
     setTimeout(() => URL.revokeObjectURL(url), 1000);
+    const note = leftOutNote('the file');
+    if (note) toast('CSV exported.' + note);
   }
 
   // --------------------------------------------------------------- toast --
@@ -1001,6 +1063,8 @@
     const row = state.rows.find((r) => r.id === li.dataset.id);
     if (!row) return;
     row[input.dataset.field] = input.value;
+    if (input.dataset.field === 'weight') delete row.weightEach;
+    if (input.dataset.field === 'units') followUnits(row);
     if (state.example) state.example = false;
     update();
   });
@@ -1125,9 +1189,10 @@
     const position = [...list.children].indexOf(active.closest('li'));
     const id = active.getAttribute(attr);
     render();
+    // Another window caused this, so keep focus without scrolling the page.
     const same = list.querySelector('[' + attr + '="' + CSS.escape(id) + '"]');
-    if (same) same.focus();
-    else focusInList(list, position, list.id === 'draftList' ? 'draftsToggle' : 'libraryToggle');
+    if (same) same.focus({ preventScroll: true });
+    else focusInList(list, position, list.id === 'draftList' ? 'draftsToggle' : 'libraryToggle', { preventScroll: true });
   }
 
   // Keep the lists current when another window saves or deletes.

@@ -24,6 +24,7 @@
   --signal-ink: #261e00;
   --danger: #b42318;
   --danger-soft: #fdeceb;
+  --toast-link: #f5c518;
   --shadow: 0 1px 2px rgb(21 32 43 / 0.06), 0 6px 18px rgb(21 32 43 / 0.06);
 
   --font-display: "Barlow Condensed", "DIN Condensed", "Bahnschrift", "Arial Narrow", sans-serif;
@@ -50,6 +51,7 @@
     --signal-ink: #1e1700;
     --danger: #f97066;
     --danger-soft: #3b1d1b;
+    --toast-link: #1d4f91;
     --shadow: 0 1px 2px rgb(0 0 0 / 0.3), 0 6px 18px rgb(0 0 0 / 0.25);
     color-scheme: dark;
   }
@@ -70,6 +72,7 @@
   --signal-ink: #1e1700;
   --danger: #f97066;
   --danger-soft: #3b1d1b;
+  --toast-link: #1d4f91;
   --shadow: 0 1px 2px rgb(0 0 0 / 0.3), 0 6px 18px rgb(0 0 0 / 0.25);
   color-scheme: dark;
 }
@@ -800,7 +803,7 @@ kbd {
   z-index: 10;
 }
 
-.toast .link { flex: none; color: var(--signal); }
+.toast .link { flex: none; color: var(--toast-link); }
 
 /* Long names with no spaces wrap instead of pushing Undo off the screen. */
 #toastText { min-width: 0; overflow-wrap: anywhere; }

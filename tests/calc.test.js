@@ -171,7 +171,7 @@ test('CSV export has a header, one row per complete line and a total', () => {
   assert.match(csv[0], /^Item,Description,Length \(in\)/);
   assert.match(csv[1], /^1,"Carton, ""A""",12.375,/);
   assert.match(csv[2], /^3,Carton B,/);
-  assert.match(csv[3], /^Total,.*,7\.58,121\.35,125$/);
+  assert.match(csv[3], /^Total,.*,7\.58,121\.35,125,$/);
 });
 
 test('summary text includes totals and the scale used', () => {
@@ -239,4 +239,43 @@ test('draft rows keep their own unit system and convert from it when opened', ()
   assert.equal(opened[0].weight, '2.3');
   assert.equal(opened[1].length, '39.3701');
   assert.equal(opened[2].length, '1.9685');
+});
+
+test('left-out lines are flagged in the summary and CSV instead of vanishing', () => {
+  const state = {
+    unit: 'us', weightMode: 'unit', rounding: 'exact', scale: 'nmfc2025',
+    rows: [
+      { desc: 'SKU-1', length: 12, width: 12, height: 12, weight: 10, units: 2 },
+      { desc: 'SKU-2', length: 20, width: 16, height: 12, weight: '1l.5', units: 6 },
+      { desc: '', length: '', width: '', height: '', weight: '', units: '' },
+      { desc: 'SKU-4', length: 10, width: 10, height: '', weight: '', units: 1 }
+    ]
+  };
+  const result = F.computeShipment(state.rows, state);
+  assert.deepEqual(F.leftOutLines(state, result), [
+    { item: 2, desc: 'SKU-2', reason: 'check weight' },
+    { item: 4, desc: 'SKU-4', reason: 'missing height, weight' }
+  ]);
+  const text = F.buildSummary(state, result);
+  assert.match(text, /NOT INCLUDED in the totals below/);
+  assert.match(text, /2\. SKU-2: check weight/);
+  assert.match(text, /4\. SKU-4: missing height, weight/);
+  assert.match(text, /Totals cover 1 of 3 item lines\./);
+  const csv = F.buildCsv(state, result).trim().split('\r\n');
+  assert.equal(csv.length, 5);
+  assert.match(csv[2], /^2,SKU-2,20,16,12,1l\.5,6,,,,,,,,Left out of totals: check weight$/);
+  assert.match(csv[3], /^4,SKU-4,10,10,,,1,,,,,,,,"Left out of totals: missing height, weight"$/);
+  assert.match(csv[4], /^Total,.*,Covers 1 of 3 item lines$/);
+});
+
+test('summary shows m3 to 3 places and leads with metric values on a metric sheet', () => {
+  const state = {
+    unit: 'metric', weightMode: 'unit', rounding: 'exact', scale: 'nmfc2025',
+    rows: [{ desc: 'Small box', length: 20, width: 15, height: 10, weight: 1.2, units: 3 }]
+  };
+  const text = F.buildSummary(state, F.computeShipment(state.rows, state));
+  assert.match(text, /Total cube:\s+0\.009 m³ \(0\.32 cu ft\)/);
+  assert.match(text, /Total weight:\s+3\.60 kg \(7\.94 lbs\)/);
+  assert.match(text, /Density:\s+400\.00 kg\/m³ \(24\.97 pcf\)/);
+  assert.doesNotMatch(text, /NOT INCLUDED/);
 });

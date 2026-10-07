@@ -313,7 +313,29 @@
     return /[",\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
   }
 
-  /** Build a CSV of every line plus a totals row. */
+  var FIELD_LABELS = { length: 'length', width: 'width', height: 'height', weight: 'weight', units: 'units' };
+
+  /**
+   * Lines the totals leave out because they are incomplete or invalid, with a
+   * short reason each. Empty lines are not listed.
+   */
+  function leftOutLines(state, result) {
+    var out = [];
+    state.rows.forEach(function (row, i) {
+      var l = result.lines[i];
+      if (!l || (l.status !== 'incomplete' && l.status !== 'invalid')) return;
+      var fields = l.status === 'invalid' ? Object.keys(l.errors) : l.missing;
+      out.push({
+        item: i + 1,
+        desc: row.desc ? String(row.desc).trim() : '',
+        reason: (l.status === 'invalid' ? 'check ' : 'missing ') +
+          fields.map(function (f) { return FIELD_LABELS[f] || f; }).join(', ')
+      });
+    });
+    return out;
+  }
+
+  /** Build a CSV of every line plus a totals row. Left-out lines are listed with a note. */
   function buildCsv(state, result) {
     var L = labels(state.unit);
     var head = [
@@ -321,25 +343,35 @@
       'Length (' + L.len + ')', 'Width (' + L.len + ')', 'Height (' + L.len + ')',
       'Weight (' + L.wt + (state.weightMode === 'total' ? ', line total' : ', per unit') + ')',
       'Units', 'Cube (cu ft)', 'Cube (m3)', 'Weight (lbs)', 'Weight (kg)',
-      'Density (pcf)', 'Density (kg/m3)', 'Class'
+      'Density (pcf)', 'Density (kg/m3)', 'Class', 'Note'
     ];
     var out = [head.map(csvCell).join(',')];
+    var skipped = {};
+    leftOutLines(state, result).forEach(function (s) { skipped[s.item] = s.reason; });
     state.rows.forEach(function (row, i) {
       var l = result.lines[i];
-      if (!l || l.status !== 'ok') return;
-      var c = classify(l.pcf, state.scale);
-      out.push([
-        i + 1, row.desc || '', l.dims[0], l.dims[1], l.dims[2], parseNumber(row.weight), l.units,
-        l.cubeFt3.toFixed(3), l.cubeM3.toFixed(4), l.weightLb.toFixed(2), l.weightKg.toFixed(2),
-        l.pcf.toFixed(2), l.kgm3.toFixed(2), c ? c.cls : ''
-      ].map(csvCell).join(','));
+      if (l && l.status === 'ok') {
+        var c = classify(l.pcf, state.scale);
+        out.push([
+          i + 1, row.desc || '', l.dims[0], l.dims[1], l.dims[2], parseNumber(row.weight), l.units,
+          l.cubeFt3.toFixed(3), l.cubeM3.toFixed(4), l.weightLb.toFixed(2), l.weightKg.toFixed(2),
+          l.pcf.toFixed(2), l.kgm3.toFixed(2), c ? c.cls : '', ''
+        ].map(csvCell).join(','));
+      } else if (skipped[i + 1]) {
+        out.push([
+          i + 1, row.desc || '', row.length, row.width, row.height, row.weight, row.units,
+          '', '', '', '', '', '', '', 'Left out of totals: ' + skipped[i + 1]
+        ].map(csvCell).join(','));
+      }
     });
     var t = result.totals;
     if (t.lines) {
+      var left = Object.keys(skipped).length;
       out.push([
         'Total', '', '', '', '', '', t.units,
         t.cubeFt3.toFixed(3), t.cubeM3.toFixed(4), t.weightLb.toFixed(2), t.weightKg.toFixed(2),
-        t.pcf.toFixed(2), t.kgm3.toFixed(2), result.classification ? result.classification.cls : ''
+        t.pcf.toFixed(2), t.kgm3.toFixed(2), result.classification ? result.classification.cls : '',
+        left ? 'Covers ' + t.lines + ' of ' + (t.lines + left) + ' item lines' : ''
       ].map(csvCell).join(','));
     }
     return out.join('\r\n') + '\r\n';
@@ -348,6 +380,7 @@
   /** Plain-text summary for pasting into an email, quote form or BOL note. */
   function buildSummary(state, result) {
     var L = labels(state.unit);
+    var metric = state.unit === 'metric';
     var lines = ['Shipment density summary (HSSH FCalc)', ''];
     state.rows.forEach(function (row, i) {
       var l = result.lines[i];
@@ -360,16 +393,27 @@
         ', ' + l.units + (l.units === 1 ? ' unit' : ' units')
       );
     });
+    var left = leftOutLines(state, result);
+    if (left.length) {
+      lines.push('', 'NOT INCLUDED in the totals below (incomplete or invalid):');
+      left.forEach(function (s) {
+        lines.push(s.item + '. ' + (s.desc ? s.desc + ': ' : '') + s.reason);
+      });
+    }
     var t = result.totals;
-    if (!t.lines) return lines.concat('No complete items yet.').join('\n');
+    if (!t.lines) return lines.concat('', 'No complete items yet.').join('\n');
     var scale = getScale(state.scale);
+    var pair = function (us, si) { return metric ? si + ' (' + us + ')' : us + ' (' + si + ')'; };
     lines.push(
       '',
-      'Total cube:    ' + fmtFixed(t.cubeFt3) + ' cu ft (' + fmtFixed(t.cubeM3) + ' m³)',
-      'Total weight:  ' + fmtFixed(t.weightLb) + ' lbs (' + fmtFixed(t.weightKg) + ' kg)',
-      'Density:       ' + fmtFixed(t.pcf) + ' pcf (' + fmtFixed(t.kgm3) + ' kg/m³)',
+      'Total cube:    ' + pair(fmtFixed(t.cubeFt3) + ' cu ft', fmtFixed(t.cubeM3, 3) + ' m³'),
+      'Total weight:  ' + pair(fmtFixed(t.weightLb) + ' lbs', fmtFixed(t.weightKg) + ' kg'),
+      'Density:       ' + pair(fmtFixed(t.pcf) + ' pcf', fmtFixed(t.kgm3) + ' kg/m³'),
       'Est. class:    ' + result.classification.cls + ' (' + scale.name + ' scale)'
     );
+    if (left.length) {
+      lines.push('Totals cover ' + t.lines + ' of ' + (t.lines + left.length) + ' item lines.');
+    }
     if (state.rounding && state.rounding !== 'exact') {
       lines.push('Dimensions rounded ' + (state.rounding === 'up' ? 'up to the next whole ' : 'to the nearest whole ') + L.len + '.');
     }
@@ -453,6 +497,7 @@
     labels: labels,
     buildCsv: buildCsv,
     buildSummary: buildSummary,
+    leftOutLines: leftOutLines,
     DRAFT_FIELDS: DRAFT_FIELDS,
     toDraftRows: toDraftRows,
     fromDraftRows: fromDraftRows

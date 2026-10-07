@@ -473,6 +473,7 @@ kbd {
 
 .draft-form {
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
   gap: 6px;
   padding: 12px 14px;
   border: 1px solid var(--line);
@@ -506,6 +507,7 @@ kbd {
 
 .saved-panel {
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
   gap: 8px;
   padding: 12px 14px;
   border: 1px solid var(--line);
@@ -776,15 +778,19 @@ kbd {
 
 /* ---------------------------------------------------------------- toast -- */
 
+/* Centered with auto margins between 16px insets, so it can use the full
+   width of a phone screen instead of the half a left: 50% offset leaves. */
 .toast {
   position: fixed;
-  left: 50%;
+  left: 16px;
+  right: 16px;
   bottom: calc(20px + env(safe-area-inset-bottom, 0px));
-  transform: translateX(-50%);
+  width: fit-content;
+  max-width: 36rem;
+  margin-inline: auto;
   display: flex;
   align-items: center;
   gap: 14px;
-  max-width: calc(100% - 32px);
   padding: 10px 16px;
   border-radius: 10px;
   background: var(--ink);
@@ -794,7 +800,10 @@ kbd {
   z-index: 10;
 }
 
-.toast .link { color: var(--signal); }
+.toast .link { flex: none; color: var(--signal); }
+
+/* Long names with no spaces wrap instead of pushing Undo off the screen. */
+#toastText { min-width: 0; overflow-wrap: anywhere; }
 
 /* --------------------------------------------------------------- narrow -- */
 

@@ -68,15 +68,31 @@
     };
   }
 
+  /** What a line held before a unit switch, if the stored copy is well formed. */
+  function restoreBeforeSwitch(b) {
+    if (!isObject(b) || (b.unit !== 'us' && b.unit !== 'metric') || !isObject(b.values) || !isObject(b.produced)) return null;
+    const values = {};
+    const produced = {};
+    for (const f of MEASURE_FIELDS) {
+      if (typeof b.values[f] !== 'string' || typeof b.produced[f] !== 'string') return null;
+      values[f] = b.values[f];
+      produced[f] = b.produced[f];
+    }
+    return { unit: b.unit, values: values, produced: produced };
+  }
+
   function restoreState(saved) {
     if (!isObject(saved) || !Array.isArray(saved.rows)) return defaultState();
+    const unit = asUnit(saved.unit);
     const rows = saved.rows.filter(isObject).map((r) => {
       const row = { id: uid() };
       FIELDS.forEach((f) => { row[f] = asText(r[f]); });
+      const back = restoreBeforeSwitch(r.beforeSwitch);
+      if (back && back.unit !== unit) row.beforeSwitch = back;
       return row;
     });
     return {
-      unit: asUnit(saved.unit),
+      unit: unit,
       weightMode: saved.weightMode === 'total' ? 'total' : 'unit',
       rounding: ['exact', 'nearest', 'up'].includes(saved.rounding) ? saved.rounding : 'exact',
       scale: typeof saved.scale === 'string' && Object.prototype.hasOwnProperty.call(F.SCALES, saved.scale)
@@ -138,12 +154,28 @@
 
   // Another window may have changed the lists since this page loaded. Re-read
   // them before every change so one window never overwrites the other's work.
+  // After a failed write (blocked or full storage) the stored copy is older
+  // than the one on screen, so it is not read back until a write succeeds.
+  const unsaved = { library: false, drafts: false };
+
+  function saveLibrary() {
+    unsaved.library = !store(LIBRARY_KEY, library);
+    return !unsaved.library;
+  }
+
+  function saveDrafts() {
+    unsaved.drafts = !store(DRAFTS_KEY, drafts);
+    return !unsaved.drafts;
+  }
+
   function refreshLibrary() {
+    if (unsaved.library) return;
     const saved = load(LIBRARY_KEY);
     if (saved !== null) library = safely(() => restoreLibrary(saved || []), library);
   }
 
   function refreshDrafts() {
+    if (unsaved.drafts) return;
     const saved = load(DRAFTS_KEY);
     if (saved !== null) drafts = safely(() => restoreDrafts(saved || []), drafts);
   }
@@ -159,6 +191,7 @@
       rows: state.rows.map((r) => {
         const o = {};
         FIELDS.forEach((f) => { o[f] = r[f]; });
+        if (r.beforeSwitch) o.beforeSwitch = r.beforeSwitch;
         return o;
       })
     });
@@ -525,6 +558,23 @@
     return Object.assign({}, row, { unit: state.unit });
   }
 
+  /**
+   * A line just filled from values typed in `fromUnit`. When that differs from
+   * the sheet's unit, remember the typed values so switching back or saving
+   * uses them exactly instead of a rounded conversion.
+   */
+  function rememberTyped(row, typed, fromUnit) {
+    delete row.beforeSwitch;
+    if (fromUnit === state.unit) return;
+    const values = {};
+    const produced = {};
+    MEASURE_FIELDS.forEach((f) => {
+      values[f] = asText(typed[f]).trim();
+      produced[f] = row[f];
+    });
+    row.beforeSwitch = { unit: fromUnit, values: values, produced: produced };
+  }
+
   const savedAtText = (ms) => new Date(ms).toLocaleString(undefined, {
     month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit'
   });
@@ -573,7 +623,7 @@
     } else {
       library.push(entry);
     }
-    const kept = store(LIBRARY_KEY, library);
+    const kept = saveLibrary();
     renderLibrary();
     toast((existing >= 0 ? 'Updated ' : 'Saved ') + '"' + name + '" in saved items.' + (kept ? '' : STORAGE_BLOCKED));
   }
@@ -597,9 +647,11 @@
     if (FIELDS.every((f) => !last[f])) {
       Object.assign(last, data);
       row = last;
+      rememberTyped(row, it, it.unit);
       renderLines();
     } else {
       row = addRow(null, data);
+      rememberTyped(row, it, it.unit);
     }
     focusField(row.id, 'units');
   }
@@ -612,13 +664,19 @@
       return;
     }
     library = library.filter((it) => it.id !== id);
-    const kept = store(LIBRARY_KEY, library);
+    const kept = saveLibrary();
     renderLibrary();
     focusInList($('libraryList'), position, 'libraryToggle');
     toast('Deleted "' + removed.name + '".' + (kept ? '' : STORAGE_BLOCKED), 'Undo', () => {
       refreshLibrary();
+      const clash = library.some((it) => it.id !== removed.id && it.name.toLowerCase() === removed.name.toLowerCase());
+      if (clash) {
+        renderLibrary();
+        toast('Not restored: another window has since saved an item called "' + removed.name + '".');
+        return;
+      }
       if (!library.some((it) => it.id === removed.id)) library.push(removed);
-      store(LIBRARY_KEY, library);
+      saveLibrary();
       renderLibrary();
       setPanel('library', 'libraryToggle', true);
       const again = $('libraryList').querySelector('[data-library-add="' + CSS.escape(removed.id) + '"]');
@@ -754,7 +812,7 @@
     };
     if (existing >= 0) drafts[existing] = draft;
     else drafts.push(draft);
-    const kept = store(DRAFTS_KEY, drafts);
+    const kept = saveDrafts();
     state.draftName = name;
     persist();
     renderDrafts();
@@ -776,19 +834,7 @@
     };
     const rows = F.fromDraftRows(draft, state.unit).map((r, i) => {
       const row = Object.assign({ id: uid() }, r);
-      // Saved in the other unit system: remember the saved entries so switching
-      // back shows them exactly (2.3 lbs, not 2.3001 lbs).
-      const saved = draft.rows[i];
-      const from = saved.unit || draft.unit;
-      if (from !== state.unit) {
-        const values = {};
-        const produced = {};
-        MEASURE_FIELDS.forEach((f) => {
-          values[f] = saved[f].trim();
-          produced[f] = row[f];
-        });
-        row.beforeSwitch = { unit: from, values: values, produced: produced };
-      }
+      rememberTyped(row, draft.rows[i], draft.rows[i].unit || draft.unit);
       return row;
     });
     // Draft weights are per unit, so the sheet has to read them that way.
@@ -821,13 +867,19 @@
       return;
     }
     drafts = drafts.filter((d) => d.id !== id);
-    const kept = store(DRAFTS_KEY, drafts);
+    const kept = saveDrafts();
     renderDrafts();
     focusInList($('draftList'), position, 'draftsToggle');
     toast('Deleted draft "' + removed.name + '".' + (kept ? '' : STORAGE_BLOCKED), 'Undo', () => {
       refreshDrafts();
+      const clash = drafts.some((d) => d.id !== removed.id && d.name.toLowerCase() === removed.name.toLowerCase());
+      if (clash) {
+        renderDrafts();
+        toast('Not restored: another window has since saved a draft called "' + removed.name + '".');
+        return;
+      }
       if (!drafts.some((d) => d.id === removed.id)) drafts.push(removed);
-      store(DRAFTS_KEY, drafts);
+      saveDrafts();
       renderDrafts();
       setPanel('drafts', 'draftsToggle', true);
       const again = $('draftList').querySelector('[data-draft-open="' + CSS.escape(removed.id) + '"]');
@@ -1060,15 +1112,37 @@
     if (del) deleteDraft(del.dataset.draftDelete, [...$('draftList').children].indexOf(del.closest('li')));
   });
 
+  /** Re-render a list without losing keyboard focus on one of its buttons. */
+  function keepListFocus(render) {
+    const active = document.activeElement;
+    const attr = active && ['data-draft-open', 'data-draft-delete', 'data-library-add', 'data-library-delete']
+      .find((a) => active.hasAttribute(a));
+    if (!attr) {
+      render();
+      return;
+    }
+    const list = active.closest('ul');
+    const position = [...list.children].indexOf(active.closest('li'));
+    const id = active.getAttribute(attr);
+    render();
+    const same = list.querySelector('[' + attr + '="' + CSS.escape(id) + '"]');
+    if (same) same.focus();
+    else focusInList(list, position, list.id === 'draftList' ? 'draftsToggle' : 'libraryToggle');
+  }
+
   // Keep the lists current when another window saves or deletes.
   window.addEventListener('storage', (e) => {
     if (e.key === null || e.key === DRAFTS_KEY) {
-      refreshDrafts();
-      renderDrafts();
+      keepListFocus(() => {
+        refreshDrafts();
+        renderDrafts();
+      });
     }
     if (e.key === null || e.key === LIBRARY_KEY) {
-      refreshLibrary();
-      renderLibrary();
+      keepListFocus(() => {
+        refreshLibrary();
+        renderLibrary();
+      });
     }
   });
 

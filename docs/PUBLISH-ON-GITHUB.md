@@ -1,4 +1,4 @@
-# Publish FCalc on GitHub
+# Publish LoadLens on GitHub
 
 This guide puts the calculator online at:
 
@@ -62,8 +62,13 @@ automatically**. You never need to repeat steps 1 to 3.
 - **Browsers cache the site.** If a change does not show up, refresh once or
   twice. The app checks for a fresh copy every time it is online.
 - **Custom domain (optional):** Settings > Pages > Custom domain, for example
-  `fcalc.yourcompany.com`. GitHub shows the DNS record to add at your domain
+  `loadlens.yourcompany.com`. GitHub shows the DNS record to add at your domain
   registrar. Tick **Enforce HTTPS** once it is available.
+- **Repository name (optional):** the address uses the repository's name,
+  `HSSH-FCALC`. To publish as `https://hssh-code.github.io/LoadLens/` instead,
+  rename the repository in **Settings > General > Repository name** to `LoadLens`.
+  GitHub redirects the old repository links, but the old Pages address stops
+  working, so share the new one.
 - **Saved data stays on each device.** Items people type and save are stored
   in their own browser, not on GitHub, so nothing shipment-related is uploaded.
 

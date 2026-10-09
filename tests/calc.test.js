@@ -180,6 +180,7 @@ test('summary text includes totals and the scale used', () => {
     rows: [{ desc: 'Box', length: 12, width: 12, height: 12, weight: 7, units: 2 }]
   };
   const text = F.buildSummary(state, F.computeShipment(state.rows, state));
+  assert.ok(text.startsWith('Shipment density summary (LoadLens)\n'));
   assert.match(text, /1\. Box: 12 x 12 x 12 in, 7 lbs each, 2 units/);
   assert.match(text, /Total cube:\s+2\.00 cu ft/);
   assert.match(text, /Est\. class:\s+125 \(NMFC 2025 scale\)/);

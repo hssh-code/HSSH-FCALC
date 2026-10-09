@@ -1,6 +1,6 @@
 {
-  "name": "HSSH FCalc",
-  "short_name": "FCalc",
+  "name": "LoadLens",
+  "short_name": "LoadLens",
   "description": "Freight density and NMFC class estimator for LTL shipments.",
   "start_url": "./",
   "scope": "./",

@@ -15,7 +15,7 @@ function createWindow() {
     height: 880,
     minWidth: 400,
     minHeight: 560,
-    title: 'HSSH FCalc',
+    title: 'LoadLens',
     icon: path.join(ROOT, 'assets', 'icons', 'icon-512.png'),
     backgroundColor: nativeTheme.shouldUseDarkColors ? '#0e1419' : '#edf0f3',
     show: false,

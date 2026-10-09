@@ -3,7 +3,7 @@
  * Network first so updates show up right away; the cache is only a fallback
  * for when there is no connection.
  */
-const CACHE = 'hssh-fcalc-v1';
+const CACHE = 'loadlens-v1';
 const SHELL = [
   './',
   'index.html',

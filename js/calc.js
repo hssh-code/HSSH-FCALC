@@ -1,14 +1,14 @@
 /*
- * HSSH FCalc: calculation core.
+ * LoadLens: calculation core.
  *
  * Pure functions only (no DOM), so the same file runs in the browser
- * (exposed as window.FCalc) and in Node for the test suite (require()).
+ * (exposed as window.LoadLensCalc) and in Node for the test suite (require()).
  */
 (function (root, factory) {
   if (typeof module === 'object' && module.exports) {
     module.exports = factory();
   } else {
-    root.FCalc = factory();
+    root.LoadLensCalc = factory();
   }
 })(typeof self !== 'undefined' ? self : this, function () {
   'use strict';
@@ -445,7 +445,7 @@
   function buildSummary(state, result) {
     var L = labels(state.unit);
     var metric = state.unit === 'metric';
-    var lines = ['Shipment density summary (HSSH FCalc)', ''];
+    var lines = ['Shipment density summary (LoadLens)', ''];
     state.rows.forEach(function (row, i) {
       var l = result.lines[i];
       if (!l || l.status !== 'ok') return;

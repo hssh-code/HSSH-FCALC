@@ -1,7 +1,7 @@
-# HSSH FCalc
+# LoadLens
 
 A freight density and class calculator for LTL shipments. Enter each item's
-dimensions, weight and unit count, and FCalc gives you the shipment's total cube,
+dimensions, weight and unit count, and LoadLens gives you the shipment's total cube,
 weight, density (pounds per cubic foot) and the estimated NMFC freight class.
 
 It runs in any modern browser with no install and no internet connection, and
@@ -43,7 +43,7 @@ still there the next time you open it.
 
 ## Density scale used
 
-FCalc defaults to the 13-tier density scale that NMFTA introduced in NMFC
+LoadLens defaults to the 13-tier density scale that NMFTA introduced in NMFC
 Docket 2025-1, effective July 19, 2025:
 
 | Density (lb/ft³) | Class |

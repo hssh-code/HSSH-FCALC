@@ -1,6 +1,6 @@
-# FCalc as a macOS and Windows app
+# LoadLens as a macOS and Windows app
 
-There are two ways to get FCalc on the Dock or Start menu. Start with
+There are two ways to get LoadLens on the Dock or Start menu. Start with
 **Option A**; it takes a minute. Use **Option B** when you want real
 installer files to hand out.
 
@@ -19,12 +19,12 @@ installer files to hand out.
 Open **https://hssh-code.github.io/HSSH-FCALC/** and:
 
 - **Chrome or Edge (Mac or Windows):** click the **Install** icon at the right
-  end of the address bar (or the **Install app** button in FCalc's header).
-  FCalc gets its own window, Dock or taskbar icon, and Start menu or
+  end of the address bar (or the **Install app** button in LoadLens's header).
+  LoadLens gets its own window, Dock or taskbar icon, and Start menu or
   Launchpad entry.
 - **Safari on macOS Sonoma or later:** **File > Add to Dock**.
 
-To remove it, open the app and use its menu (Chrome: **Uninstall HSSH FCalc**),
+To remove it, open the app and use its menu (Chrome: **Uninstall LoadLens**),
 or drag it out of the Applications folder on a Mac.
 
 ---
@@ -36,17 +36,17 @@ Windows machines, so you do not need both computers. You get:
 
 | File | For |
 | --- | --- |
-| `HSSH-FCalc-1.0.0-mac-arm64.dmg` | Macs with Apple chips (M1 and newer) |
-| `HSSH-FCalc-1.0.0-mac-x64.dmg` | Older Intel Macs |
-| `HSSH-FCalc-Setup-1.0.0.exe` | Windows installer (Start menu, uninstaller) |
-| `HSSH-FCalc-1.0.0-portable.exe` | Windows, runs without installing |
+| `LoadLens-1.0.0-mac-arm64.dmg` | Macs with Apple chips (M1 and newer) |
+| `LoadLens-1.0.0-mac-x64.dmg` | Older Intel Macs |
+| `LoadLens-Setup-1.0.0.exe` | Windows installer (Start menu, uninstaller) |
+| `LoadLens-1.0.0-portable.exe` | Windows, runs without installing |
 
 ### Make a release (recommended)
 
 1. Finish Step 1 of [PUBLISH-ON-GITHUB.md](PUBLISH-ON-GITHUB.md) so `main` exists.
 2. On the repository page, click **Releases** (right side), then **Draft a new release**.
 3. Click **Choose a tag**, type `v1.0.0`, and click **Create new tag: v1.0.0 on publish**. Target: `main`.
-4. Title it `HSSH FCalc 1.0.0` and click **Publish release**.
+4. Title it `LoadLens 1.0.0` and click **Publish release**.
 5. Open the **Actions** tab and watch **Build desktop apps**. It takes about
    10 minutes. When it is green, the four files are attached to the release.
 
@@ -73,10 +73,10 @@ in-house apps.
 
 ### macOS
 
-1. Open the `.dmg` and drag **HSSH FCalc** into **Applications**.
+1. Open the `.dmg` and drag **LoadLens** into **Applications**.
 2. Open it. macOS says it cannot verify the developer. Click **Done**.
 3. Open **System Settings > Privacy & Security**, scroll down, and click
-   **Open Anyway** next to the HSSH FCalc message. Confirm with your password.
+   **Open Anyway** next to the LoadLens message. Confirm with your password.
 
 It opens normally from then on.
 
@@ -84,14 +84,14 @@ If macOS instead says the app **"is damaged and can't be opened"**, the
 download was quarantined. Open **Terminal** and run:
 
 ```bash
-xattr -cr "/Applications/HSSH FCalc.app"
+xattr -cr "/Applications/LoadLens.app"
 ```
 
 ### Windows
 
-1. Run `HSSH-FCalc-Setup-1.0.0.exe`.
+1. Run `LoadLens-Setup-1.0.0.exe`.
 2. If you see **"Windows protected your PC"**, click **More info**, then **Run anyway**.
-3. Follow the installer. FCalc appears in the Start menu.
+3. Follow the installer. LoadLens appears in the Start menu.
 
 ---
 
@@ -105,7 +105,7 @@ Useful when you change the app and want to try it before releasing.
 
 ```bash
 npm install         # one time, about 200 MB of build tools
-npm start           # opens FCalc in a desktop window
+npm start           # opens LoadLens in a desktop window
 npm run dist:mac    # on a Mac: builds the .dmg files into dist/
 npm run dist:win    # on Windows: builds the .exe files into dist/
 ```

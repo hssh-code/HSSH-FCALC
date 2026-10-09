@@ -1,16 +1,22 @@
 /*
- * HSSH FCalc: user interface.
- * All math lives in calc.js (window.FCalc); this file only reads inputs,
+ * LoadLens: user interface.
+ * All math lives in calc.js (window.LoadLensCalc); this file only reads inputs,
  * paints results and remembers the sheet between visits.
  */
 (function () {
   'use strict';
 
-  const F = window.FCalc;
-  const STATE_KEY = 'hssh-fcalc:v1:state';
-  const LIBRARY_KEY = 'hssh-fcalc:v1:library';
-  const DRAFTS_KEY = 'hssh-fcalc:v1:drafts';
-  const PREVIEW = Boolean(window.FCALC_PREVIEW); // hosted preview: no print, downloads or install
+  const F = window.LoadLensCalc;
+  const STATE_KEY = 'loadlens:v1:state';
+  const LIBRARY_KEY = 'loadlens:v1:library';
+  const DRAFTS_KEY = 'loadlens:v1:drafts';
+  // Keys used before the product was renamed from HSSH FCalc.
+  const LEGACY_KEYS = {
+    [STATE_KEY]: 'hssh-fcalc:v1:state',
+    [LIBRARY_KEY]: 'hssh-fcalc:v1:library',
+    [DRAFTS_KEY]: 'hssh-fcalc:v1:drafts'
+  };
+  const PREVIEW = Boolean(window.LOADLENS_PREVIEW); // hosted preview: no print, downloads or install
   const FIELDS = ['desc', 'length', 'width', 'height', 'weight', 'units'];
   const MEASURE_FIELDS = ['length', 'width', 'height', 'weight'];
   const FIELD_NAMES = { length: 'length', width: 'width', height: 'height', weight: 'weight', units: 'units' };
@@ -50,6 +56,25 @@
   }
 
   const STORAGE_BLOCKED = ' This browser is blocking saved data, so it will be gone when you close the page.';
+
+  /**
+   * Bring over the sheet, drafts and saved items stored under the old name.
+   * Copies only into keys that are still empty, and leaves the old copies in
+   * place, so nothing is ever overwritten or lost.
+   */
+  function migrateLegacyKeys() {
+    try {
+      Object.keys(LEGACY_KEYS).forEach((key) => {
+        if (localStorage.getItem(key) !== null) return;
+        const old = localStorage.getItem(LEGACY_KEYS[key]);
+        if (old !== null) localStorage.setItem(key, old);
+      });
+    } catch (e) {
+      /* Storage blocked or full: start fresh, the old data stays where it is. */
+    }
+  }
+
+  migrateLegacyKeys();
 
   // Stored data is untrusted: only plain strings and numbers become text.
   const asText = (v) => (typeof v === 'string' ? v : typeof v === 'number' && isFinite(v) ? String(v) : '');

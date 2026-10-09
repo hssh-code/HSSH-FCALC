@@ -1,9 +1,28 @@
 // Desktop wrapper: opens the same index.html the browser version uses in a
 // native window. Nothing here touches the calculator itself.
 const { app, BrowserWindow, nativeTheme, shell } = require('electron');
+const fs = require('fs');
 const path = require('path');
 
 const ROOT = path.join(__dirname, '..');
+
+// Before the rename the app was "HSSH FCalc", and Electron keeps each app's
+// saved data in a folder named after the app. On the first LoadLens launch,
+// copy the old folder's saved data across so the page can move the sheet,
+// drafts and saved items over. The old folder is left untouched.
+function bringOverLegacyData() {
+  try {
+    const legacy = path.join(app.getPath('appData'), 'HSSH FCalc', 'Local Storage');
+    const current = path.join(app.getPath('userData'), 'Local Storage');
+    if (fs.existsSync(legacy) && !fs.existsSync(current)) {
+      fs.cpSync(legacy, current, { recursive: true });
+    }
+  } catch (e) {
+    // Nothing to bring over, or it could not be read: start fresh.
+  }
+}
+
+bringOverLegacyData();
 
 function openExternal(url) {
   if (/^https?:\/\//i.test(url)) shell.openExternal(url);
